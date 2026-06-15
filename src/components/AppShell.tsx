@@ -1,7 +1,7 @@
 import type { ActiveTab, AppAction, AppState, LoadedModel, OrientationAxis, OrientationTurnOperation } from "../types";
 import { Box, FolderOpen, RotateCcw, RotateCw, Lock, SlidersHorizontal } from "lucide-react";
 import type { ChangeEvent, Dispatch, KeyboardEvent, ReactNode } from "react";
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
 import { IconButton } from "./IconButton";
 import { SunDomeControl } from "./SunDomeControl";
@@ -177,6 +177,13 @@ export function AppShell({
   const desktopFileInputId = useId();
   const mobileFileInputId = useId();
   const mobileTabBaseId = useId();
+  const mobileSheetBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mobileSheetBodyRef.current) {
+      mobileSheetBodyRef.current.scrollTop = 0;
+    }
+  }, [state.activeTab]);
 
   const handleLockToggle = () => {
     dispatch({ type: "toggle-lock" });
@@ -378,15 +385,6 @@ export function AppShell({
 
         <main className="viewport">
           {children}
-          <div className="mobile-mode-segmented">
-            <SegmentedControl
-              options={VALUE_OPTIONS}
-              value={state.valueMode}
-              onChange={setValueMode}
-              name="mobile-overlay-value-mode"
-              testId="mobile-value-mode-control"
-            />
-          </div>
         </main>
 
         <aside className="panel panel-right desktop-only">
@@ -429,6 +427,7 @@ export function AppShell({
           className="mobile-sheet__body"
           role="tabpanel"
           aria-labelledby={`${mobileTabBaseId}-${state.activeTab}-tab`}
+          ref={mobileSheetBodyRef}
         >
           {state.activeTab === "light" && <SunDomeControl light={state.light} onChange={handleLightChange} disabled={lightLocked} />}
           {state.activeTab === "model" && (
@@ -467,6 +466,7 @@ export function AppShell({
                   value={state.valueMode}
                   onChange={setValueMode}
                   name="mobile-sheet-value-mode"
+                  testId="mobile-value-mode-control"
                 />
               </section>
               <section className="panel-section">

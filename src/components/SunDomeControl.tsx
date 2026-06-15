@@ -139,55 +139,59 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
         <span>Direction</span>
         <span>Az {formatInt(light.azimuthDeg)} • El {formatInt(light.elevationDeg)}</span>
       </div>
-      <button
-        type="button"
-        className="sun-dome"
-        data-testid="sun-dome"
-        ref={domeRef}
-        aria-label="Light direction pad"
-        aria-describedby={readoutId}
-        disabled={disabled}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
-        onKeyDown={onKeyDown}
-      >
-        <span
-          className="sun-dome__ring"
-          style={{
-            width: `${distanceRing * 2}%`,
-            height: `${distanceRing * 2}%`,
-          }}
-        />
-        <span className="sun-dome__marker" style={{ left: `${markerLeft}%`, top: `${markerTop}%` }} />
-      </button>
+      <div className="sun-dome-panel__primary">
+        <button
+          type="button"
+          className="sun-dome"
+          data-testid="sun-dome"
+          ref={domeRef}
+          aria-label="Light direction pad"
+          aria-describedby={readoutId}
+          disabled={disabled}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerLeave={onPointerUp}
+          onKeyDown={onKeyDown}
+        >
+          <span
+            className="sun-dome__ring"
+            style={{
+              width: `${distanceRing * 2}%`,
+              height: `${distanceRing * 2}%`,
+            }}
+          />
+          <span className="sun-dome__marker" style={{ left: `${markerLeft}%`, top: `${markerTop}%` }} />
+        </button>
+        <div className="sun-dome__sliders sun-dome__sliders--axes">
+          <RangeControl
+            label="Azimuth"
+            value={light.azimuthDeg}
+            min={0}
+            max={360}
+            step={1}
+            onChange={(value) => onChange({ azimuthDeg: value })}
+            disabled={disabled}
+            testId="light-azimuth-slider"
+            formatValue={(value) => `${value.toFixed(0)}°`}
+          />
+          <RangeControl
+            label="Elevation"
+            value={light.elevationDeg}
+            min={MIN_ELEVATION}
+            max={MAX_ELEVATION}
+            step={1}
+            onChange={(value) => onChange({ elevationDeg: value })}
+            disabled={disabled}
+            testId="light-elevation-slider"
+            formatValue={(value) => `${value.toFixed(0)}°`}
+          />
+        </div>
+      </div>
       <div id={readoutId} className="visually-hidden" aria-live="polite" aria-atomic="true">
         {directionReadout}
       </div>
-      <div className="sun-dome__sliders">
-        <RangeControl
-          label="Azimuth"
-          value={light.azimuthDeg}
-          min={0}
-          max={360}
-          step={1}
-          onChange={(value) => onChange({ azimuthDeg: value })}
-          disabled={disabled}
-          testId="light-azimuth-slider"
-          formatValue={(value) => `${value.toFixed(0)}°`}
-        />
-        <RangeControl
-          label="Elevation"
-          value={light.elevationDeg}
-          min={MIN_ELEVATION}
-          max={MAX_ELEVATION}
-          step={1}
-          onChange={(value) => onChange({ elevationDeg: value })}
-          disabled={disabled}
-          testId="light-elevation-slider"
-          formatValue={(value) => `${value.toFixed(0)}°`}
-        />
+      <div className="sun-dome__sliders sun-dome__sliders--advanced">
         <RangeControl
           label="Distance"
           value={light.distance}

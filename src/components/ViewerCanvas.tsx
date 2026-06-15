@@ -71,7 +71,6 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
         <StlModel model={state.model} light={state.light} valueMode={state.valueMode} />
         {!state.model && <EmptyStudyForm />}
       </Canvas>
-      {!state.light.locked && <SunCue azimuthDeg={state.light.azimuthDeg} elevationDeg={state.light.elevationDeg} />}
     </div>
   );
 });
@@ -162,17 +161,5 @@ function EmptyStudyForm() {
         <meshStandardMaterial color="#8a8a85" roughness={0.9} metalness={0} />
       </mesh>
     </group>
-  );
-}
-
-function SunCue({ azimuthDeg, elevationDeg }: { azimuthDeg: number; elevationDeg: number }) {
-  const angle = azimuthDeg - 45;
-  const opacity = 0.65 + Math.max(0, elevationDeg) / 240;
-
-  return (
-    <div className="sun-cue" aria-hidden="true" style={{ opacity }}>
-      <span className="sun-cue__orb" />
-      <span className="sun-cue__ray" style={{ transform: `rotate(${angle}deg)` }} />
-    </div>
   );
 }

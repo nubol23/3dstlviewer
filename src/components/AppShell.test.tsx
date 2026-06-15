@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitialState } from "../state";
 import type { AppState } from "../types";
@@ -60,5 +60,15 @@ describe("AppShell accessibility", () => {
     expect(screen.getByRole("tablist", { name: "Mobile controls" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Model" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Model");
+  });
+
+  it("keeps mobile value mode in the lower View tab instead of the viewport", () => {
+    const { container } = renderShell({ activeTab: "view" });
+
+    expect(container.querySelector(".mobile-mode-segmented")).not.toBeInTheDocument();
+    const mobileValueMode = screen.getByTestId("mobile-value-mode-control");
+    expect(within(mobileValueMode).getByRole("radio", { name: "Shaded" })).toBeChecked();
+    expect(within(mobileValueMode).getByRole("radio", { name: "3-Step" })).toBeInTheDocument();
+    expect(within(mobileValueMode).getByRole("radio", { name: "5-Step" })).toBeInTheDocument();
   });
 });
