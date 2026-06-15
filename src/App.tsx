@@ -7,9 +7,11 @@ import { loadStlFile, rebuildLoadedModel, rotateLoadedModel } from "./lib/stl";
 import { appReducer, createInitialState, writePersistedState } from "./state";
 import { DEFAULT_MODEL_ORIENTATION, type OrientationAxis } from "./types";
 
+const LOAD_NOTICE_VISIBLE_MS = 3200;
+
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
-  const { floor, light, presets, valueMode, valueRamp } = state;
+  const { floor, light, presets, valueMode, valueRamp, zenithalStudy } = state;
   const cameraApiRef = useRef<ViewerCameraApi | null>(null);
   const loadRequestIdRef = useRef(0);
   const previousSourceGeometryRef = useRef<BufferGeometry | null>(null);
@@ -68,8 +70,22 @@ export default function App() {
   }, [state.model]);
 
   useEffect(() => {
-    writePersistedState({ floor, light, presets, valueMode, valueRamp });
-  }, [floor, light, presets, valueMode, valueRamp]);
+    writePersistedState({ floor, light, presets, valueMode, valueRamp, zenithalStudy });
+  }, [floor, light, presets, valueMode, valueRamp, zenithalStudy]);
+
+  useEffect(() => {
+    if (!state.loadNotice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      dispatch({ type: "clear-load-notice" });
+    }, LOAD_NOTICE_VISIBLE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [state.loadNotice]);
 
   useEffect(() => {
     const currentSourceGeometry = state.model?.sourceGeometry ?? null;

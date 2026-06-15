@@ -68,7 +68,13 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
         <CameraRig controlsRef={controlsRef} fittedBounds={state.model?.fit.fittedBounds ?? null} />
         <SceneLighting light={state.light} modelFit={state.model?.fit ?? null} />
         <Floor floor={state.floor} modelFit={state.model?.fit ?? null} />
-        <StlModel model={state.model} light={state.light} valueMode={state.valueMode} valueRamp={state.valueRamp} />
+        <StlModel
+          model={state.model}
+          light={state.light}
+          valueMode={state.valueMode}
+          valueRamp={state.valueRamp}
+          zenithalStudy={state.zenithalStudy}
+        />
         {!state.model && <EmptyStudyForm />}
       </Canvas>
     </div>

@@ -15,6 +15,7 @@ import {
   assertValidGeometry,
   getTriangleCountFromGeometry,
 } from "./geometry";
+import { createUuid } from "./uuid";
 
 export type StlLoadResult = {
   sourceGeometry: BufferGeometry;
@@ -36,7 +37,7 @@ function buildLoadedModel(input: {
   orientation?: ModelOrientation;
   id?: string;
 }): LoadedModel {
-  const { sourceGeometry, metadata, orientation = DEFAULT_MODEL_ORIENTATION, id = crypto.randomUUID() } = input;
+  const { sourceGeometry, metadata, orientation = DEFAULT_MODEL_ORIENTATION, id = createUuid() } = input;
   const safeOrientation = normalizeOrientation(orientation);
   const { geometry, fit } = normalizeGeometryForDisplay(sourceGeometry, safeOrientation);
 
@@ -52,7 +53,7 @@ function buildLoadedModel(input: {
 
 function buildLoadedModelFromParsed(input: StlLoadResult & { id?: string }): LoadedModel {
   return {
-    id: input.id ?? crypto.randomUUID(),
+    id: input.id ?? createUuid(),
     sourceGeometry: input.sourceGeometry,
     geometry: input.geometry,
     orientation: normalizeOrientation(input.orientation),

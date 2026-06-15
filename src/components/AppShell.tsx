@@ -149,6 +149,9 @@ function FileInputControl({
         data-testid={testId}
         type="file"
         accept=".stl"
+        onClick={(event) => {
+          event.currentTarget.value = "";
+        }}
         onChange={onChange}
       />
       <label className="toolbar__file" htmlFor={id} aria-label={compact ? "Open STL" : undefined}>
@@ -214,15 +217,55 @@ function ValueRampControl({
   );
 }
 
+function ZenithalStudyControl({
+  checked,
+  onChange,
+  testId,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  testId: string;
+}) {
+  return (
+    <label className="checkbox-control">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        data-testid={testId}
+      />
+      <span>Zenithal Study</span>
+    </label>
+  );
+}
+
 function LiveRegions({ state }: { state: AppState }) {
   return (
     <div className="visually-hidden">
       <div role="status" aria-live="polite" aria-atomic="true">
-        {state.isLoading ? "Loading STL..." : ""}
+        {state.isLoading ? "Loading STL..." : state.loadNotice ?? ""}
       </div>
       <div role="alert" aria-atomic="true">
         {state.error ?? ""}
       </div>
+    </div>
+  );
+}
+
+function LoadFeedback({ state }: { state: AppState }) {
+  const message = state.error ?? (state.isLoading ? "Loading STL..." : state.loadNotice);
+
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`load-feedback${state.error ? " load-feedback--error" : ""}`}
+      data-testid="global-load-feedback"
+      aria-hidden="true"
+    >
+      {message}
     </div>
   );
 }
@@ -267,6 +310,10 @@ export function AppShell({
 
   const setValueRamp = (patch: Partial<ValueRampState>) => {
     dispatch({ type: "set-value-ramp", patch });
+  };
+
+  const setZenithalStudy = (zenithalStudy: boolean) => {
+    dispatch({ type: "set-zenithal-study", zenithalStudy });
   };
 
   const loadPreset = (presetId: string) => {
@@ -320,6 +367,7 @@ export function AppShell({
   return (
     <div className="app-shell">
       <LiveRegions state={state} />
+      <LoadFeedback state={state} />
       <header className="toolbar desktop-toolbar">
         <div className="toolbar__brand">
           <Box size={24} className="brand-mark" />
@@ -470,7 +518,17 @@ export function AppShell({
                 Reset Light
               </button>
             </div>
-            <SunDomeControl light={state.light} onChange={handleLightChange} disabled={lightLocked} />
+            <ZenithalStudyControl
+              checked={state.zenithalStudy}
+              onChange={setZenithalStudy}
+              testId="desktop-zenithal-study-checkbox"
+            />
+            <SunDomeControl
+              light={state.light}
+              onChange={handleLightChange}
+              disabled={lightLocked}
+              zenithalStudy={state.zenithalStudy}
+            />
           </section>
         </aside>
       </div>
@@ -504,7 +562,21 @@ export function AppShell({
           aria-labelledby={`${mobileTabBaseId}-${state.activeTab}-tab`}
           ref={mobileSheetBodyRef}
         >
-          {state.activeTab === "light" && <SunDomeControl light={state.light} onChange={handleLightChange} disabled={lightLocked} />}
+          {state.activeTab === "light" && (
+            <section className="panel-section">
+              <ZenithalStudyControl
+                checked={state.zenithalStudy}
+                onChange={setZenithalStudy}
+                testId="mobile-zenithal-study-checkbox"
+              />
+              <SunDomeControl
+                light={state.light}
+                onChange={handleLightChange}
+                disabled={lightLocked}
+                zenithalStudy={state.zenithalStudy}
+              />
+            </section>
+          )}
           {state.activeTab === "model" && (
             <section className="panel-section">
               <div className="panel-section__header">

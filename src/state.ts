@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { assertValueMode } from "./lib/valueMode";
 import { assertValueRampState, DEFAULT_VALUE_RAMP } from "./lib/valueRamp";
+import { createUuid } from "./lib/uuid";
 
 export const STORAGE_KEY = "stl-value-viewer:v1";
 
@@ -32,6 +33,8 @@ export const DEFAULT_FLOOR: FloorState = {
   roughness: 0.85,
 };
 
+export const DEFAULT_ZENITHAL_STUDY = false;
+
 const DEFAULT_PRESETS: LightPreset[] = [
   {
     id: "front-left-high",
@@ -39,6 +42,7 @@ const DEFAULT_PRESETS: LightPreset[] = [
     light: { ...DEFAULT_LIGHT, azimuthDeg: 315, elevationDeg: 52, distance: 3 },
     valueMode: "shaded",
     valueRamp: DEFAULT_VALUE_RAMP,
+    zenithalStudy: DEFAULT_ZENITHAL_STUDY,
   },
   {
     id: "rim-study",
@@ -46,6 +50,7 @@ const DEFAULT_PRESETS: LightPreset[] = [
     light: { ...DEFAULT_LIGHT, azimuthDeg: 155, elevationDeg: 34, distance: 3.4, bounceStrength: 0.18 },
     valueMode: "five-step",
     valueRamp: DEFAULT_VALUE_RAMP,
+    zenithalStudy: DEFAULT_ZENITHAL_STUDY,
   },
 ];
 
@@ -56,10 +61,12 @@ export function createInitialState(): AppState {
     light: persisted?.light ? migrateLegacyDefaultLight(persisted.light) : DEFAULT_LIGHT,
     valueMode: persisted?.valueMode ?? "shaded",
     valueRamp: persisted?.valueRamp ?? DEFAULT_VALUE_RAMP,
+    zenithalStudy: persisted?.zenithalStudy ?? DEFAULT_ZENITHAL_STUDY,
     floor: persisted?.floor ?? DEFAULT_FLOOR,
     activeTab: "light",
     model: null,
     error: null,
+    loadNotice: null,
     isLoading: false,
     loadRequestId: 0,
     presets: persisted?.presets?.length ? migrateLegacyDefaultPresets(persisted.presets) : DEFAULT_PRESETS,
@@ -85,6 +92,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, valueMode: action.valueMode };
     case "set-value-ramp":
       return { ...state, valueRamp: assertValueRampState({ ...state.valueRamp, ...action.patch }) };
+    case "set-zenithal-study":
+      return { ...state, zenithalStudy: assertZenithalStudy(action.zenithalStudy) };
     case "set-floor":
       return { ...state, floor: assertFloorState({ ...state.floor, ...action.patch }) };
     case "set-active-tab":
@@ -92,13 +101,19 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeTab: action.activeTab };
     case "load-start":
       assertLoadRequestId(action.requestId);
-      return { ...state, loadRequestId: action.requestId, isLoading: true, error: null };
+      return { ...state, loadRequestId: action.requestId, isLoading: true, error: null, loadNotice: null };
     case "load-success":
       assertLoadRequestId(action.requestId);
       if (action.requestId !== state.loadRequestId) {
         return state;
       }
-      return { ...state, isLoading: false, model: action.model, error: null };
+      return {
+        ...state,
+        isLoading: false,
+        model: action.model,
+        error: null,
+        loadNotice: formatLoadSuccess(action.model.metadata.fileName),
+      };
     case "replace-model":
       return { ...state, model: action.model, error: null };
     case "load-error":
@@ -106,16 +121,19 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (action.requestId !== state.loadRequestId) {
         return state;
       }
-      return { ...state, isLoading: false, error: formatLoadError(action.message, state.model) };
+      return { ...state, isLoading: false, error: formatLoadError(action.message, state.model), loadNotice: null };
     case "clear-error":
       return { ...state, error: null };
+    case "clear-load-notice":
+      return { ...state, loadNotice: null };
     case "save-preset": {
       const nextPreset: LightPreset = {
-        id: `preset-${crypto.randomUUID()}`,
+        id: `preset-${createUuid()}`,
         name: `Preset ${state.presets.length + 1}`,
         light: { ...state.light, locked: false },
         valueMode: state.valueMode,
         valueRamp: state.valueRamp,
+        zenithalStudy: state.zenithalStudy,
       };
       return { ...state, presets: [nextPreset, ...state.presets].slice(0, 8) };
     }
@@ -129,6 +147,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         light: assertLightState({ ...preset.light, locked: false }),
         valueMode: preset.valueMode,
         valueRamp: preset.valueRamp,
+        zenithalStudy: preset.zenithalStudy,
       };
     }
     default:
@@ -136,14 +155,15 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-type PersistableAppState = Pick<AppState, "light" | "valueMode" | "valueRamp" | "floor" | "presets">;
+type PersistableAppState = Pick<AppState, "light" | "valueMode" | "valueRamp" | "zenithalStudy" | "floor" | "presets">;
 
 export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
-    version: 2,
+    version: 3,
     light: state.light,
     valueMode: state.valueMode,
     valueRamp: state.valueRamp,
+    zenithalStudy: state.zenithalStudy,
     floor: state.floor,
     presets: state.presets,
   };
@@ -208,6 +228,14 @@ function formatLoadError(message: string, currentModel: AppState["model"]): stri
   return currentModel ? `${message}. Previous model remains loaded.` : message;
 }
 
+function formatLoadSuccess(fileName: string): string {
+  if (!fileName || fileName.trim().length === 0) {
+    throw new Error("Invalid load success message: fileName is required");
+  }
+
+  return `Loaded ${fileName}.`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -232,6 +260,10 @@ function assertBoolean(value: unknown, label: string): boolean {
     throw new Error(`Invalid ${label}: ${String(value)}`);
   }
   return value;
+}
+
+function assertZenithalStudy(value: unknown): boolean {
+  return assertBoolean(value, "zenithal study");
 }
 
 function assertString(value: unknown, label: string): string {
@@ -289,7 +321,13 @@ function assertFloorState(value: unknown): FloorState {
   };
 }
 
-function assertPreset(value: unknown, requireValueRamp: boolean): LightPreset {
+function assertPreset(
+  value: unknown,
+  {
+    requireValueRamp,
+    requireZenithalStudy,
+  }: { requireValueRamp: boolean; requireZenithalStudy: boolean },
+): LightPreset {
   if (!isRecord(value)) {
     throw new Error("Invalid preset: expected object");
   }
@@ -304,12 +342,20 @@ function assertPreset(value: unknown, requireValueRamp: boolean): LightPreset {
     throw new Error("Invalid preset value ramp: expected object");
   }
 
+  let zenithalStudy = DEFAULT_ZENITHAL_STUDY;
+  if ("zenithalStudy" in value) {
+    zenithalStudy = assertZenithalStudy(value.zenithalStudy);
+  } else if (requireZenithalStudy) {
+    throw new Error("Invalid preset zenithal study: expected boolean");
+  }
+
   return {
     id: assertString(value.id, "preset id"),
     name: assertString(value.name, "preset name"),
     light: assertLightState(value.light),
     valueMode,
     valueRamp,
+    zenithalStudy,
   };
 }
 
@@ -318,7 +364,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     throw new Error("Invalid persisted viewer state: expected object");
   }
 
-  if (value.version !== 1 && value.version !== 2) {
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3) {
     throw new Error(`Unsupported persisted viewer state version: ${String(value.version)}`);
   }
 
@@ -329,17 +375,27 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     throw new Error("Invalid persisted viewer state: presets must be an array");
   }
 
-  const isCurrentVersion = value.version === 2;
-  const valueRamp = isCurrentVersion
+  const hasPersistedValueRamp = value.version === 2 || value.version === 3;
+  const isCurrentVersion = value.version === 3;
+  const valueRamp = hasPersistedValueRamp
     ? assertValueRampState(value.valueRamp)
     : DEFAULT_VALUE_RAMP;
+  const zenithalStudy = isCurrentVersion
+    ? assertZenithalStudy(value.zenithalStudy)
+    : DEFAULT_ZENITHAL_STUDY;
 
   return {
-    version: 2,
+    version: 3,
     light: assertLightState(value.light),
     valueMode,
     valueRamp,
+    zenithalStudy,
     floor: assertFloorState(value.floor),
-    presets: value.presets.map((preset) => assertPreset(preset, isCurrentVersion)),
+    presets: value.presets.map((preset) =>
+      assertPreset(preset, {
+        requireValueRamp: hasPersistedValueRamp,
+        requireZenithalStudy: isCurrentVersion,
+      }),
+    ),
   };
 }

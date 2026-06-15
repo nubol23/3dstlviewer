@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RangeControl, SegmentedControl } from "./Controls";
-import { SunDomeControl } from "./SunDomeControl";
+import { domePointToLightDirection, projectLightToDomePoint, SunDomeControl } from "./SunDomeControl";
 import { DEFAULT_LIGHT } from "../state";
 
 const valueOptions = [
@@ -55,5 +55,19 @@ describe("Controls accessibility", () => {
 
     expect(onChange).toHaveBeenNthCalledWith(1, { azimuthDeg: 320 });
     expect(onChange).toHaveBeenNthCalledWith(2, { elevationDeg: 63 });
+  });
+
+  it("uses a stable dome projection for pointer light direction", () => {
+    const projected = projectLightToDomePoint({ azimuthDeg: 315, elevationDeg: 48 });
+    const roundTrip = domePointToLightDirection(projected, 315);
+    const nearZenith = domePointToLightDirection({ x: 0.01, y: 0.01 }, 315);
+    const lowerElevation = domePointToLightDirection({ x: 0, y: -0.5 }, 315);
+
+    expect(roundTrip.azimuthDeg).toBeCloseTo(315);
+    expect(roundTrip.elevationDeg).toBeCloseTo(48);
+    expect(nearZenith.azimuthDeg).toBe(315);
+    expect(nearZenith.elevationDeg).toBeGreaterThan(77);
+    expect(lowerElevation.azimuthDeg).toBeCloseTo(0);
+    expect(lowerElevation.elevationDeg).toBeCloseTo(39);
   });
 });

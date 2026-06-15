@@ -41,12 +41,37 @@ label {
 }
 
 .app-shell {
+  position: relative;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 10px;
   background: linear-gradient(180deg, #0e1217 0%, var(--bg) 100%);
   padding: 10px;
+}
+
+.load-feedback {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  z-index: 30;
+  max-width: min(520px, calc(100vw - 24px));
+  transform: translateX(-50%);
+  border: 1px solid rgba(88, 213, 208, 0.55);
+  border-radius: 8px;
+  background: rgba(17, 27, 31, 0.96);
+  color: var(--text);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+  line-height: 1.25;
+  padding: 8px 12px;
+  pointer-events: none;
+}
+
+.load-feedback--error {
+  border-color: rgba(255, 111, 106, 0.65);
+  background: rgba(44, 19, 20, 0.96);
+  color: #ffd0cf;
 }
 
 .visually-hidden {
@@ -357,6 +382,28 @@ input[type="range"]:disabled {
   align-items: center;
 }
 
+.checkbox-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkbox-control input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.checkbox-control:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
 .floor-color input {
   width: 38px;
   height: 28px;
@@ -492,6 +539,11 @@ input[type="range"]:disabled {
 
 .sun-dome:disabled {
   cursor: not-allowed;
+}
+
+.sun-dome-panel.is-zenithal .sun-dome,
+.sun-dome-panel.is-zenithal .sun-dome__sliders--axes {
+  opacity: 0.45;
 }
 
 .sun-dome:focus-visible {
@@ -649,6 +701,11 @@ input[type="range"]::-moz-range-thumb {
     overflow: hidden;
   }
 
+  .load-feedback {
+    top: 62px;
+    font-size: 12px;
+  }
+
   .mobile-toolbar {
     display: flex;
     gap: 8px;
@@ -721,28 +778,41 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .mobile-sheet .sun-dome-panel {
-    gap: 8px;
+    gap: 6px;
   }
 
   .mobile-sheet .sun-dome-panel__primary {
     display: grid;
-    grid-template-columns: clamp(128px, 42vw, 148px) minmax(0, 1fr);
+    grid-template-columns: clamp(112px, 37vw, 132px) minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
 
   .mobile-sheet .sun-dome {
-    width: clamp(128px, 42vw, 148px);
+    width: clamp(112px, 37vw, 132px);
     justify-self: center;
   }
 
   .mobile-sheet .sun-dome__sliders--axes {
     min-width: 0;
-    gap: 10px;
+    gap: 8px;
   }
 
   .mobile-sheet .sun-dome__sliders--advanced {
     padding-top: 2px;
+  }
+
+  .mobile-sheet .checkbox-control {
+    min-height: 24px;
+    font-size: 12px;
+  }
+
+  .mobile-sheet .slider-block {
+    gap: 4px;
+  }
+
+  .mobile-sheet .slider-block__ticks {
+    font-size: 11px;
   }
 
   .mobile-sheet .value-ramp-control {

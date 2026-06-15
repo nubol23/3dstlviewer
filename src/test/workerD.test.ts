@@ -7,6 +7,7 @@ import {
   createInitialState,
   STORAGE_KEY,
   DEFAULT_LIGHT,
+  DEFAULT_ZENITHAL_STUDY,
 } from "../state";
 import { DEFAULT_VALUE_RAMP } from "../lib/valueRamp";
 import {
@@ -215,6 +216,7 @@ describe("load reducer lifecycle", () => {
     const staleOlderError = appReducer(staleOlderLoaded, { type: "load-error", requestId: 1, message: "older failed" });
 
     expect(staleOlderError.model).toBe(newer);
+    expect(staleOlderError.loadNotice).toBe("Loaded newer.stl.");
     expect(staleOlderError.error).toBeNull();
     expect(staleOlderError.isLoading).toBe(false);
   });
@@ -228,7 +230,29 @@ describe("load reducer lifecycle", () => {
 
     expect(failed.model).toBe(model);
     expect(failed.error).toBe("replacement failed. Previous model remains loaded.");
+    expect(failed.loadNotice).toBeNull();
     expect(failed.isLoading).toBe(false);
+  });
+
+  it("clears stale notices while loading and sets a visible success notice", () => {
+    const model = createModelStub("current", "current.stl");
+    const loading = appReducer(createInitialState(), { type: "load-start", requestId: 1 });
+    const loaded = appReducer(loading, { type: "load-success", requestId: 1, model });
+    const loadingAgain = appReducer(loaded, { type: "load-start", requestId: 2 });
+
+    expect(loaded.loadNotice).toBe("Loaded current.stl.");
+    expect(loadingAgain.loadNotice).toBeNull();
+  });
+
+  it("clears load success notices without clearing the loaded model", () => {
+    const model = createModelStub("current", "current.stl");
+    const loading = appReducer(createInitialState(), { type: "load-start", requestId: 1 });
+    const loaded = appReducer(loading, { type: "load-success", requestId: 1, model });
+    const cleared = appReducer(loaded, { type: "clear-load-notice" });
+
+    expect(cleared.model).toBe(model);
+    expect(cleared.loadNotice).toBeNull();
+    expect(cleared.error).toBeNull();
   });
 });
 
@@ -240,6 +264,7 @@ describe("reducer fail-fast validation", () => {
     expect(() => appReducer(state, { type: "set-active-tab", activeTab: "missing" as never })).toThrow("Unsupported active tab");
     expect(() => appReducer(state, { type: "set-light", patch: { intensity: Number.NaN } })).toThrow("Invalid light intensity");
     expect(() => appReducer(state, { type: "set-value-ramp", patch: { bandBias: Infinity } })).toThrow("Invalid value ramp band bias");
+    expect(() => appReducer(state, { type: "set-zenithal-study", zenithalStudy: "yes" as never })).toThrow("Invalid zenithal study");
     expect(() => appReducer(state, { type: "set-floor", patch: { roughness: Infinity } })).toThrow("Invalid floor roughness");
   });
 });
@@ -291,7 +316,7 @@ describe("persistence codec", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it("migrates version 1 persisted state with default value ramp settings", () => {
+  it("migrates version 1 persisted state with default value ramp and zenithal settings", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -313,18 +338,66 @@ describe("persistence codec", () => {
     const parsed = readPersistedState();
 
     expect(parsed).not.toBeNull();
-    expect(parsed?.version).toBe(2);
+    expect(parsed?.version).toBe(3);
     expect(parsed?.valueRamp).toEqual(DEFAULT_VALUE_RAMP);
+    expect(parsed?.zenithalStudy).toBe(DEFAULT_ZENITHAL_STUDY);
     expect(parsed?.presets[0]?.valueRamp).toEqual(DEFAULT_VALUE_RAMP);
+    expect(parsed?.presets[0]?.zenithalStudy).toBe(DEFAULT_ZENITHAL_STUDY);
   });
 
-  it("resets current persisted state that is missing value ramp settings", () => {
+  it("migrates version 2 persisted state with default zenithal settings", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        light: createInitialState().light,
+        valueMode: "five-step",
+        valueRamp: DEFAULT_VALUE_RAMP,
+        floor: { color: "#000", roughness: 1 },
+        presets: [
+          {
+            id: "version-2-preset",
+            name: "Version 2",
+            light: createInitialState().light,
+            valueMode: "three-step",
+            valueRamp: DEFAULT_VALUE_RAMP,
+          },
+        ],
+      }),
+    );
+
+    const parsed = readPersistedState();
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(3);
+    expect(parsed?.zenithalStudy).toBe(DEFAULT_ZENITHAL_STUDY);
+    expect(parsed?.presets[0]?.zenithalStudy).toBe(DEFAULT_ZENITHAL_STUDY);
+  });
+
+  it("resets version 2 persisted state that is missing value ramp settings", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         version: 2,
         light: createInitialState().light,
         valueMode: "shaded",
+        floor: { color: "#000", roughness: 1 },
+        presets: [],
+      }),
+    );
+
+    expect(readPersistedState()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("resets current persisted state that is missing zenithal settings", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 3,
+        light: createInitialState().light,
+        valueMode: "shaded",
+        valueRamp: DEFAULT_VALUE_RAMP,
         floor: { color: "#000", roughness: 1 },
         presets: [],
       }),
@@ -369,6 +442,7 @@ describe("persistence codec", () => {
     expect(state.presets[0]?.name).toBe("Front Left");
     expect(state.presets[0]?.light.azimuthDeg).toBe(315);
     expect(state.valueRamp).toEqual(DEFAULT_VALUE_RAMP);
+    expect(state.zenithalStudy).toBe(DEFAULT_ZENITHAL_STUDY);
   });
 
   it("saves and restores value ramp settings in presets", () => {
@@ -391,5 +465,23 @@ describe("persistence codec", () => {
       highlightLightness: 92,
       bandBias: 0.12,
     });
+  });
+
+  it("saves and restores zenithal study settings in presets", () => {
+    const state = appReducer(createInitialState(), {
+      type: "set-zenithal-study",
+      zenithalStudy: true,
+    });
+    const withPreset = appReducer(state, { type: "save-preset" });
+    const changed = appReducer(withPreset, {
+      type: "set-zenithal-study",
+      zenithalStudy: false,
+    });
+    const restored = appReducer(changed, {
+      type: "load-preset",
+      presetId: withPreset.presets[0]?.id ?? "missing",
+    });
+
+    expect(restored.zenithalStudy).toBe(true);
   });
 });

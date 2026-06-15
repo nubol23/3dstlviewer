@@ -17,7 +17,7 @@ test.describe("STL viewer", () => {
 
     await page.goto("/");
     await page.getByTestId("stl-file-input").setInputFiles(lizardPath);
-    await expect(page.getByText("root-miniatures-lizard.stl", { exact: false })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "root-miniatures-lizard.stl" }).first()).toBeVisible();
     await expect(page.getByTestId("load-error")).toHaveCount(0);
 
     const dataUrlLength = await page.locator("canvas").evaluate((canvas) => canvas.toDataURL("image/png").length);
@@ -39,6 +39,14 @@ test.describe("STL viewer", () => {
     await expect(page.getByRole("radio", { name: "3-Step" })).toBeChecked();
     await page.getByRole("slider", { name: "Shadow Value" }).fill("30");
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
+
+    await page.getByTestId("desktop-zenithal-study-checkbox").check();
+    await expect(page.getByTestId("desktop-zenithal-study-checkbox")).toBeChecked();
+    await expect(page.getByTestId("light-azimuth-slider").first()).toBeDisabled();
+    await expect(page.getByTestId("light-elevation-slider").first()).toBeDisabled();
+    await page.getByTestId("desktop-zenithal-study-checkbox").uncheck();
+    await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
+
     await desktopValueMode.locator("label").filter({ hasText: "5-Step" }).click();
     await expect(page.getByRole("radio", { name: "5-Step" })).toBeChecked();
     await desktopValueMode.locator("label").filter({ hasText: "Shaded" }).click();
@@ -62,6 +70,9 @@ test.describe("STL viewer", () => {
     await expect(page.getByRole("heading", { name: "root-miniatures-lizard.stl" }).first()).toBeVisible();
     await page.locator(".mobile-sheet").getByTestId("rotate-x-negative").click();
     await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
+    await page.getByTestId("mobile-stl-file-input").setInputFiles(lizardPath);
+    await expect(page.locator(".mobile-sheet").getByText("Identity")).toBeVisible();
+    await expect(page.getByTestId("global-load-feedback")).toContainText("Loaded root-miniatures-lizard.stl.");
 
     const boxes = await page.evaluate(() => {
       const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
@@ -85,6 +96,10 @@ test.describe("STL viewer", () => {
     expect(boxes.hasSunCue).toBe(false);
 
     await page.getByRole("tab", { name: "Light" }).click();
+    await page.getByTestId("mobile-zenithal-study-checkbox").check();
+    await expect(page.getByTestId("mobile-zenithal-study-checkbox")).toBeChecked();
+    await expect(page.locator(".mobile-sheet").getByTestId("light-azimuth-slider")).toBeDisabled();
+    await expect(page.locator(".mobile-sheet").getByTestId("light-elevation-slider")).toBeDisabled();
     const lightLayout = await page.evaluate(() => {
       const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
       const primary = document.querySelector(".mobile-sheet .sun-dome-panel__primary")?.getBoundingClientRect();
@@ -128,6 +143,7 @@ test.describe("STL viewer", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await page.getByRole("tab", { name: "Light" }).click();
+    await page.getByTestId("mobile-zenithal-study-checkbox").check();
 
     const layout = await page.evaluate(() => {
       const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
@@ -135,6 +151,7 @@ test.describe("STL viewer", () => {
       return {
         sheetBody: sheetBody ? { height: sheetBody.height } : null,
         dome: dome ? { width: dome.width, height: dome.height } : null,
+        horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     });
 
@@ -142,5 +159,6 @@ test.describe("STL viewer", () => {
     expect(layout.dome).not.toBeNull();
     expect(layout.dome!.width).toBeLessThanOrEqual(150);
     expect(layout.dome!.height).toBeLessThan(layout.sheetBody!.height);
+    expect(layout.horizontalOverflow).toBe(false);
   });
 });

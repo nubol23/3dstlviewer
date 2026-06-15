@@ -8,9 +8,10 @@ type StlModelProps = {
   light: LightState;
   valueMode: ValueMode;
   valueRamp: ValueRampState;
+  zenithalStudy: boolean;
 };
 
-export function StlModel({ model, light, valueMode, valueRamp }: StlModelProps) {
+export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: StlModelProps) {
   const previousGeometryRef = useRef<BufferGeometry | null>(null);
 
   useEffect(() => {
@@ -38,7 +39,13 @@ export function StlModel({ model, light, valueMode, valueRamp }: StlModelProps) 
         triangles: model.metadata.triangleCount,
       }}
     >
-      <StudyMaterial light={light} lightTarget={model.fit.center} valueMode={valueMode} valueRamp={valueRamp} />
+      <StudyMaterial
+        light={light}
+        lightTarget={model.fit.center}
+        valueMode={valueMode}
+        valueRamp={valueRamp}
+        zenithalStudy={zenithalStudy}
+      />
     </mesh>
   );
 }

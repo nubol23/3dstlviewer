@@ -73,13 +73,15 @@ export type LightPreset = {
   light: LightState;
   valueMode: ValueMode;
   valueRamp: ValueRampState;
+  zenithalStudy: boolean;
 };
 
 export type PersistedViewerState = {
-  version: 2;
+  version: 3;
   light: LightState;
   valueMode: ValueMode;
   valueRamp: ValueRampState;
+  zenithalStudy: boolean;
   floor: FloorState;
   presets: LightPreset[];
 };
@@ -88,10 +90,12 @@ export type AppState = {
   light: LightState;
   valueMode: ValueMode;
   valueRamp: ValueRampState;
+  zenithalStudy: boolean;
   floor: FloorState;
   activeTab: ActiveTab;
   model: LoadedModel | null;
   error: string | null;
+  loadNotice: string | null;
   isLoading: boolean;
   loadRequestId: number;
   presets: LightPreset[];
@@ -103,6 +107,7 @@ export type AppAction =
   | { type: "toggle-lock" }
   | { type: "set-value-mode"; valueMode: ValueMode }
   | { type: "set-value-ramp"; patch: Partial<ValueRampState> }
+  | { type: "set-zenithal-study"; zenithalStudy: boolean }
   | { type: "set-floor"; patch: Partial<FloorState> }
   | { type: "set-active-tab"; activeTab: ActiveTab }
   | { type: "load-start"; requestId: number }
@@ -110,5 +115,6 @@ export type AppAction =
   | { type: "replace-model"; model: LoadedModel }
   | { type: "load-error"; requestId: number; message: string }
   | { type: "clear-error" }
+  | { type: "clear-load-notice" }
   | { type: "save-preset" }
   | { type: "load-preset"; presetId: string };
