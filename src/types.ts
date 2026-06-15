@@ -61,17 +61,25 @@ export type FloorState = {
   roughness: number;
 };
 
+export type ValueRampState = {
+  shadowLightness: number;
+  highlightLightness: number;
+  bandBias: number;
+};
+
 export type LightPreset = {
   id: string;
   name: string;
   light: LightState;
   valueMode: ValueMode;
+  valueRamp: ValueRampState;
 };
 
 export type PersistedViewerState = {
-  version: 1;
+  version: 2;
   light: LightState;
   valueMode: ValueMode;
+  valueRamp: ValueRampState;
   floor: FloorState;
   presets: LightPreset[];
 };
@@ -79,6 +87,7 @@ export type PersistedViewerState = {
 export type AppState = {
   light: LightState;
   valueMode: ValueMode;
+  valueRamp: ValueRampState;
   floor: FloorState;
   activeTab: ActiveTab;
   model: LoadedModel | null;
@@ -93,6 +102,7 @@ export type AppAction =
   | { type: "reset-light" }
   | { type: "toggle-lock" }
   | { type: "set-value-mode"; valueMode: ValueMode }
+  | { type: "set-value-ramp"; patch: Partial<ValueRampState> }
   | { type: "set-floor"; patch: Partial<FloorState> }
   | { type: "set-active-tab"; activeTab: ActiveTab }
   | { type: "load-start"; requestId: number }

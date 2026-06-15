@@ -1,10 +1,19 @@
-import type { ActiveTab, AppAction, AppState, LoadedModel, OrientationAxis, OrientationTurnOperation } from "../types";
+import type {
+  ActiveTab,
+  AppAction,
+  AppState,
+  LoadedModel,
+  OrientationAxis,
+  OrientationTurnOperation,
+  ValueRampState,
+} from "../types";
 import { Box, FolderOpen, RotateCcw, RotateCw, Lock, SlidersHorizontal } from "lucide-react";
 import type { ChangeEvent, Dispatch, KeyboardEvent, ReactNode } from "react";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
 import { IconButton } from "./IconButton";
 import { SunDomeControl } from "./SunDomeControl";
+import { createValueRampColors } from "../lib/valueRamp";
 
 const VALUE_OPTIONS = [
   { value: "shaded", label: "Shaded" },
@@ -150,6 +159,61 @@ function FileInputControl({
   );
 }
 
+function ValueRampControl({
+  valueRamp,
+  onChange,
+  testIdPrefix,
+}: {
+  valueRamp: ValueRampState;
+  onChange: (patch: Partial<ValueRampState>) => void;
+  testIdPrefix: string;
+}) {
+  const previewColors = useMemo(
+    () => createValueRampColors(valueRamp, 5),
+    [valueRamp],
+  );
+
+  return (
+    <div className="value-ramp-control" data-testid={`${testIdPrefix}-value-ramp-control`}>
+      <div className="value-ramp-preview" aria-hidden="true">
+        {previewColors.map((color, index) => (
+          <span key={`${color}-${index}`} style={{ backgroundColor: color }} />
+        ))}
+      </div>
+      <RangeControl
+        label="Shadow Value"
+        min={5}
+        max={40}
+        step={1}
+        value={valueRamp.shadowLightness}
+        onChange={(shadowLightness) => onChange({ shadowLightness })}
+        testId={`${testIdPrefix}-shadow-value-slider`}
+        formatValue={(value) => value.toFixed(0)}
+      />
+      <RangeControl
+        label="Highlight Value"
+        min={60}
+        max={98}
+        step={1}
+        value={valueRamp.highlightLightness}
+        onChange={(highlightLightness) => onChange({ highlightLightness })}
+        testId={`${testIdPrefix}-highlight-value-slider`}
+        formatValue={(value) => value.toFixed(0)}
+      />
+      <RangeControl
+        label="Band Bias"
+        min={-0.25}
+        max={0.25}
+        step={0.01}
+        value={valueRamp.bandBias}
+        onChange={(bandBias) => onChange({ bandBias })}
+        testId={`${testIdPrefix}-band-bias-slider`}
+        formatValue={(value) => (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2))}
+      />
+    </div>
+  );
+}
+
 function LiveRegions({ state }: { state: AppState }) {
   return (
     <div className="visually-hidden">
@@ -199,6 +263,10 @@ export function AppShell({
 
   const setValueMode = (valueMode: AppState["valueMode"]) => {
     dispatch({ type: "set-value-mode", valueMode });
+  };
+
+  const setValueRamp = (patch: Partial<ValueRampState>) => {
+    dispatch({ type: "set-value-ramp", patch });
   };
 
   const loadPreset = (presetId: string) => {
@@ -337,6 +405,13 @@ export function AppShell({
 
           <section className="panel-section">
             <div className="panel-section__header">
+              <h3>Value Ramp</h3>
+            </div>
+            <ValueRampControl valueRamp={state.valueRamp} onChange={setValueRamp} testIdPrefix="desktop" />
+          </section>
+
+          <section className="panel-section">
+            <div className="panel-section__header">
               <h3>Floor</h3>
             </div>
             <label className="floor-color">
@@ -468,6 +543,7 @@ export function AppShell({
                   name="mobile-sheet-value-mode"
                   testId="mobile-value-mode-control"
                 />
+                <ValueRampControl valueRamp={state.valueRamp} onChange={setValueRamp} testIdPrefix="mobile" />
               </section>
               <section className="panel-section">
                 <div className="panel-section__header">

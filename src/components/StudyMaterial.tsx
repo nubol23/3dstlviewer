@@ -1,31 +1,38 @@
 import { type ComponentProps, useEffect, useMemo, useRef } from "react";
 import type { Vector3 } from "three";
-import { MeshLambertMaterial } from "three";
+import { Color, MeshLambertMaterial } from "three";
 
-import type { LightState, ValueMode } from "../types";
+import type { LightState, ValueMode, ValueRampState } from "../types";
 import { lightPoseFromState } from "../lib/light";
 import { getValueModeDescriptor } from "../lib/valueMode";
+import { createValueRampColors, DEFAULT_VALUE_RAMP } from "../lib/valueRamp";
 
 type StudyMaterialShader = {
   uniforms: {
     uStudySunDirection: { value: Vector3 };
     uStudyBounceStrength: { value: number };
+    uStudyKeyStrength: { value: number };
     uStudyFloorY: { value: number };
     uStudyFloorFalloff: { value: number };
     uStudyModeSteps: { value: number };
-    uStudyModeMin: { value: number };
-    uStudyModeMax: { value: number };
+    uStudyBandBias: { value: number };
+    uStudyRamp0: { value: Color };
+    uStudyRamp1: { value: Color };
+    uStudyRamp2: { value: Color };
+    uStudyRamp3: { value: Color };
+    uStudyRamp4: { value: Color };
   };
 };
 
 type StudyShaderSettings = {
   lightDirection: Vector3;
   bounceStrength: number;
+  keyStrength: number;
   floorY: number;
   floorFalloff: number;
   stepCount: number;
-  minValue: number;
-  maxValue: number;
+  bandBias: number;
+  rampColors: [Color, Color, Color, Color, Color];
 };
 
 type StudyShaderHost = {
@@ -36,8 +43,10 @@ type StudyShaderHost = {
 
 type StudyMaterialProps = Omit<ComponentProps<"meshLambertMaterial">, "children" | "onBeforeCompile"> & {
   valueMode: ValueMode;
+  valueRamp?: ValueRampState;
   lightDirection?: Vector3;
   bounceStrength?: number;
+  keyStrength?: number;
   light?: LightState;
   lightTarget?: Vector3;
   floorY?: number;
@@ -47,11 +56,16 @@ type StudyMaterialProps = Omit<ComponentProps<"meshLambertMaterial">, "children"
 export function injectStudyShader(shader: StudyShaderHost, settings: StudyShaderSettings): void {
   shader.uniforms.uStudySunDirection = { value: settings.lightDirection.clone() };
   shader.uniforms.uStudyBounceStrength = { value: settings.bounceStrength };
+  shader.uniforms.uStudyKeyStrength = { value: settings.keyStrength };
   shader.uniforms.uStudyFloorY = { value: settings.floorY };
   shader.uniforms.uStudyFloorFalloff = { value: settings.floorFalloff };
   shader.uniforms.uStudyModeSteps = { value: settings.stepCount };
-  shader.uniforms.uStudyModeMin = { value: settings.minValue };
-  shader.uniforms.uStudyModeMax = { value: settings.maxValue };
+  shader.uniforms.uStudyBandBias = { value: settings.bandBias };
+  shader.uniforms.uStudyRamp0 = { value: settings.rampColors[0].clone() };
+  shader.uniforms.uStudyRamp1 = { value: settings.rampColors[1].clone() };
+  shader.uniforms.uStudyRamp2 = { value: settings.rampColors[2].clone() };
+  shader.uniforms.uStudyRamp3 = { value: settings.rampColors[3].clone() };
+  shader.uniforms.uStudyRamp4 = { value: settings.rampColors[4].clone() };
 
   shader.vertexShader = shader.vertexShader.replace(
     "#include <common>",
@@ -84,45 +98,74 @@ varying vec3 vStudyWorldPosition;
 varying vec3 vStudyWorldNormal;
 uniform vec3 uStudySunDirection;
 uniform float uStudyBounceStrength;
+uniform float uStudyKeyStrength;
 uniform float uStudyFloorY;
 uniform float uStudyFloorFalloff;
 uniform int uStudyModeSteps;
-uniform float uStudyModeMin;
-uniform float uStudyModeMax;
+uniform float uStudyBandBias;
+uniform vec3 uStudyRamp0;
+uniform vec3 uStudyRamp1;
+uniform vec3 uStudyRamp2;
+uniform vec3 uStudyRamp3;
+uniform vec3 uStudyRamp4;
+
+vec3 getStudyRampColor(int band) {
+  if (band <= 0) {
+    return uStudyRamp0;
+  }
+  if (band == 1) {
+    return uStudyRamp1;
+  }
+  if (band == 2) {
+    return uStudyRamp2;
+  }
+  if (band == 3) {
+    return uStudyRamp3;
+  }
+  return uStudyRamp4;
+}
+`,
+  );
+
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "#include <shadowmap_pars_fragment>",
+    `
+#include <shadowmap_pars_fragment>
+#include <shadowmask_pars_fragment>
 `,
   );
 
   shader.fragmentShader = shader.fragmentShader.replace(
     "vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;",
     `
-vec3 studyLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;
-float studyLuma = clamp(dot(studyLight, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
-vec3 studyNormal = normalize(vStudyWorldNormal);
-
-float downFacing = clamp(-studyNormal.y, 0.0, 1.0);
-float lightFacing = clamp(dot(-uStudySunDirection, studyNormal), 0.0, 1.0);
-float shadowSide = 1.0 - lightFacing;
-float floorHeight = abs(vStudyWorldPosition.y - uStudyFloorY);
-float floorLift = exp2(-floorHeight / max(uStudyFloorFalloff, 0.0001));
-float bounce = uStudyBounceStrength * (0.18 + 0.52 * shadowSide) * (0.35 + 0.65 * downFacing) * mix(0.35, 1.0, floorLift);
-float studyValue = clamp(studyLuma + bounce, 0.0, 1.0);
+vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;
 
 if (uStudyModeSteps > 1) {
-  float normalized = clamp((studyValue - uStudyModeMin) / max(uStudyModeMax - uStudyModeMin, 0.0001), 0.0, 1.0);
-  float levels = float(uStudyModeSteps - 1);
-  float quantized = floor(normalized * levels + 0.5) / levels;
-  studyValue = mix(uStudyModeMin, uStudyModeMax, quantized);
-}
+  vec3 studyNormal = normalize(vStudyWorldNormal);
+  float direct = clamp(dot(studyNormal, -uStudySunDirection), 0.0, 1.0);
+  float shadow = getShadowMask();
+  float key = direct * shadow * clamp(uStudyKeyStrength, 0.0, 2.5) * 0.82;
 
-vec3 outgoingLight = vec3(studyValue);
+  float downFacing = clamp(-studyNormal.y, 0.0, 1.0);
+  float floorHeight = abs(vStudyWorldPosition.y - uStudyFloorY);
+  float floorLift = exp2(-floorHeight / max(uStudyFloorFalloff, 0.0001));
+  float bounce = uStudyBounceStrength * (0.12 + 0.38 * (1.0 - direct)) * (0.35 + 0.65 * downFacing) * mix(0.35, 1.0, floorLift);
+  float studyValue = clamp(0.08 + key + bounce + uStudyBandBias, 0.0, 1.0);
+  int studyBand = int(floor(studyValue * float(uStudyModeSteps)));
+  studyBand = clamp(studyBand, 0, uStudyModeSteps - 1);
+
+  outgoingLight = getStudyRampColor(studyBand);
+}
 `,
   );
 }
 
 export function StudyMaterial({
   valueMode,
+  valueRamp = DEFAULT_VALUE_RAMP,
   lightDirection,
   bounceStrength,
+  keyStrength,
   light,
   lightTarget,
   floorY = 0,
@@ -136,10 +179,12 @@ export function StudyMaterial({
   const descriptor = getValueModeDescriptor(valueMode);
   let derivedDirection: Vector3;
   let derivedStrength: number;
+  let derivedKeyStrength: number;
 
   if (lightDirection && bounceStrength !== undefined) {
     derivedDirection = lightDirection;
     derivedStrength = bounceStrength;
+    derivedKeyStrength = keyStrength ?? 1.25;
   } else {
     if (!light) {
       throw new Error("StudyMaterial cannot derive lighting without a light state.");
@@ -148,6 +193,7 @@ export function StudyMaterial({
     const pose = lightPoseFromState(light, lightTarget);
     derivedDirection = pose.direction;
     derivedStrength = light.bounceStrength;
+    derivedKeyStrength = light.intensity;
   }
 
   const materialRef = useRef<MeshLambertMaterial>(null);
@@ -163,13 +209,38 @@ export function StudyMaterial({
   const lightDirectionZ = lightDirectionNormalized.z;
 
   const shaderSettings = useMemo(
-    () => ({
-      stepCount: descriptor.stepCount,
-      minValue: descriptor.minValue,
-      maxValue: descriptor.maxValue,
-      floorFalloff: Math.max(0.1, floorFalloff),
-    }),
-    [descriptor.maxValue, descriptor.minValue, descriptor.stepCount, floorFalloff],
+    () => {
+      const rampStepCount = descriptor.stepCount === 3 ? 3 : 5;
+      const colors = createValueRampColors(valueRamp, rampStepCount);
+      const rampColors =
+        descriptor.stepCount === 3
+          ? [
+              new Color(colors[0]),
+              new Color(colors[1]),
+              new Color(colors[2]),
+              new Color(colors[2]),
+              new Color(colors[2]),
+            ]
+          : [
+              new Color(colors[0]),
+              new Color(colors[1]),
+              new Color(colors[2]),
+              new Color(colors[3]),
+              new Color(colors[4]),
+            ];
+
+      return {
+        stepCount: descriptor.stepCount,
+        floorFalloff: Math.max(0.1, floorFalloff),
+        bandBias: valueRamp.bandBias,
+        rampColors: rampColors as [Color, Color, Color, Color, Color],
+      };
+    },
+    [
+      descriptor.stepCount,
+      floorFalloff,
+      valueRamp,
+    ],
   );
 
   useEffect(() => {
@@ -184,11 +255,16 @@ export function StudyMaterial({
 
     shader.uniforms.uStudySunDirection.value.set(lightDirectionX, lightDirectionY, lightDirectionZ);
     shader.uniforms.uStudyBounceStrength.value = derivedStrength;
+    shader.uniforms.uStudyKeyStrength.value = derivedKeyStrength;
     shader.uniforms.uStudyFloorY.value = floorY;
     shader.uniforms.uStudyFloorFalloff.value = shaderSettings.floorFalloff;
     shader.uniforms.uStudyModeSteps.value = shaderSettings.stepCount;
-    shader.uniforms.uStudyModeMin.value = shaderSettings.minValue;
-    shader.uniforms.uStudyModeMax.value = shaderSettings.maxValue;
+    shader.uniforms.uStudyBandBias.value = shaderSettings.bandBias;
+    shader.uniforms.uStudyRamp0.value.copy(shaderSettings.rampColors[0]);
+    shader.uniforms.uStudyRamp1.value.copy(shaderSettings.rampColors[1]);
+    shader.uniforms.uStudyRamp2.value.copy(shaderSettings.rampColors[2]);
+    shader.uniforms.uStudyRamp3.value.copy(shaderSettings.rampColors[3]);
+    shader.uniforms.uStudyRamp4.value.copy(shaderSettings.rampColors[4]);
   }, [
     floorY,
     lightDirectionX,
@@ -196,10 +272,11 @@ export function StudyMaterial({
     lightDirectionZ,
     shaderSettings.stepCount,
     shaderSettings.floorFalloff,
-    shaderSettings.maxValue,
-    shaderSettings.minValue,
+    shaderSettings.bandBias,
+    shaderSettings.rampColors,
     valueMode,
     derivedStrength,
+    derivedKeyStrength,
   ]);
 
   return (
@@ -210,11 +287,12 @@ export function StudyMaterial({
         injectStudyShader(shader, {
           lightDirection: lightDirectionNormalized,
           bounceStrength: derivedStrength,
+          keyStrength: derivedKeyStrength,
           floorY,
           floorFalloff: shaderSettings.floorFalloff,
           stepCount: shaderSettings.stepCount,
-          minValue: shaderSettings.minValue,
-          maxValue: shaderSettings.maxValue,
+          bandBias: shaderSettings.bandBias,
+          rampColors: shaderSettings.rampColors,
         });
 
         materialRef.current!.userData.studyShader = shader;

@@ -1,15 +1,16 @@
 import { useEffect, useRef } from "react";
 import type { BufferGeometry } from "three";
-import type { LightState, LoadedModel, ValueMode } from "../types";
+import type { LightState, LoadedModel, ValueMode, ValueRampState } from "../types";
 import { StudyMaterial } from "./StudyMaterial";
 
 type StlModelProps = {
   model: LoadedModel | null;
   light: LightState;
   valueMode: ValueMode;
+  valueRamp: ValueRampState;
 };
 
-export function StlModel({ model, light, valueMode }: StlModelProps) {
+export function StlModel({ model, light, valueMode, valueRamp }: StlModelProps) {
   const previousGeometryRef = useRef<BufferGeometry | null>(null);
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export function StlModel({ model, light, valueMode }: StlModelProps) {
         triangles: model.metadata.triangleCount,
       }}
     >
-      <StudyMaterial light={light} lightTarget={model.fit.center} valueMode={valueMode} />
+      <StudyMaterial light={light} lightTarget={model.fit.center} valueMode={valueMode} valueRamp={valueRamp} />
     </mesh>
   );
 }

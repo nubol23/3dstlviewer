@@ -3,28 +3,20 @@ import type { ValueMode } from "../types";
 export type ValueModeDescriptor = {
   mode: ValueMode;
   stepCount: 1 | 3 | 5;
-  minValue: number;
-  maxValue: number;
 };
 
 export const VALUE_MODE_DESCRIPTORS: Record<ValueMode, ValueModeDescriptor> = {
   shaded: {
     mode: "shaded",
     stepCount: 1,
-    minValue: 0,
-    maxValue: 1,
   },
   "three-step": {
     mode: "three-step",
     stepCount: 3,
-    minValue: 0.22,
-    maxValue: 0.78,
   },
   "five-step": {
     mode: "five-step",
     stepCount: 5,
-    minValue: 0.14,
-    maxValue: 0.9,
   },
 };
 
@@ -54,12 +46,16 @@ export function quantizeValue(raw: number, mode: ValueMode): number {
     return value;
   }
 
-  const span = descriptor.maxValue - descriptor.minValue;
-  const normalized = clamp01((value - descriptor.minValue) / span);
-  const scale = descriptor.stepCount - 1;
-  const quantized = Math.round(normalized * scale) / scale;
+  if (value === 1) {
+    return 1;
+  }
 
-  return descriptor.minValue + quantized * span;
+  const band = Math.min(
+    descriptor.stepCount - 1,
+    Math.max(0, Math.floor(value * descriptor.stepCount)),
+  );
+
+  return band / (descriptor.stepCount - 1);
 }
 
 export function isContinuous(mode: ValueMode): boolean {

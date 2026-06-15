@@ -367,6 +367,27 @@ input[type="range"]:disabled {
   cursor: pointer;
 }
 
+.value-ramp-control {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.value-ramp-preview {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #151a20;
+}
+
+.value-ramp-preview span {
+  min-width: 0;
+}
+
 .preset-list {
   display: flex;
   flex-direction: column;
@@ -722,6 +743,14 @@ input[type="range"]::-moz-range-thumb {
 
   .mobile-sheet .sun-dome__sliders--advanced {
     padding-top: 2px;
+  }
+
+  .mobile-sheet .value-ramp-control {
+    gap: 8px;
+  }
+
+  .mobile-sheet .value-ramp-preview {
+    height: 20px;
   }
 
   .toolbar__file {

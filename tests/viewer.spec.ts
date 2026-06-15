@@ -34,6 +34,16 @@ test.describe("STL viewer", () => {
     await page.getByTestId("rotate-x-negative").click();
     await expect(page.getByText("1. X -90°")).toBeVisible();
 
+    const desktopValueMode = page.getByTestId("value-mode-control");
+    await desktopValueMode.locator("label").filter({ hasText: "3-Step" }).click();
+    await expect(page.getByRole("radio", { name: "3-Step" })).toBeChecked();
+    await page.getByRole("slider", { name: "Shadow Value" }).fill("30");
+    await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
+    await desktopValueMode.locator("label").filter({ hasText: "5-Step" }).click();
+    await expect(page.getByRole("radio", { name: "5-Step" })).toBeChecked();
+    await desktopValueMode.locator("label").filter({ hasText: "Shaded" }).click();
+    await expect(page.getByRole("radio", { name: "Shaded" })).toBeChecked();
+
     const shadowSoftness = page.getByRole("slider", { name: "Shadow Softness" }).first();
     await shadowSoftness.fill("1");
     await shadowSoftness.fill("0");
@@ -106,6 +116,12 @@ test.describe("STL viewer", () => {
     await expect(page.getByTestId("mobile-value-mode-control")).toBeVisible();
     await page.getByTestId("mobile-value-mode-control").locator("label").filter({ hasText: "3-Step" }).click();
     await expect(page.getByRole("radio", { name: "3-Step" })).toBeChecked();
+    await expect(page.getByTestId("mobile-value-ramp-control")).toBeVisible();
+    await page.getByTestId("mobile-shadow-value-slider").fill("26");
+    await expect(page.getByTestId("mobile-shadow-value-slider")).toHaveValue("26");
+
+    const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(horizontalOverflow).toBe(false);
   });
 
   test("keeps compact mobile light layout at 390x844", async ({ page }) => {

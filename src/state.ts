@@ -8,6 +8,7 @@ import type {
   PersistedViewerState,
 } from "./types";
 import { assertValueMode } from "./lib/valueMode";
+import { assertValueRampState, DEFAULT_VALUE_RAMP } from "./lib/valueRamp";
 
 export const STORAGE_KEY = "stl-value-viewer:v1";
 
@@ -37,12 +38,14 @@ const DEFAULT_PRESETS: LightPreset[] = [
     name: "Front Left",
     light: { ...DEFAULT_LIGHT, azimuthDeg: 315, elevationDeg: 52, distance: 3 },
     valueMode: "shaded",
+    valueRamp: DEFAULT_VALUE_RAMP,
   },
   {
     id: "rim-study",
     name: "Rim Study",
     light: { ...DEFAULT_LIGHT, azimuthDeg: 155, elevationDeg: 34, distance: 3.4, bounceStrength: 0.18 },
     valueMode: "five-step",
+    valueRamp: DEFAULT_VALUE_RAMP,
   },
 ];
 
@@ -52,6 +55,7 @@ export function createInitialState(): AppState {
   return {
     light: persisted?.light ? migrateLegacyDefaultLight(persisted.light) : DEFAULT_LIGHT,
     valueMode: persisted?.valueMode ?? "shaded",
+    valueRamp: persisted?.valueRamp ?? DEFAULT_VALUE_RAMP,
     floor: persisted?.floor ?? DEFAULT_FLOOR,
     activeTab: "light",
     model: null,
@@ -79,6 +83,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "set-value-mode":
       assertValueMode(action.valueMode);
       return { ...state, valueMode: action.valueMode };
+    case "set-value-ramp":
+      return { ...state, valueRamp: assertValueRampState({ ...state.valueRamp, ...action.patch }) };
     case "set-floor":
       return { ...state, floor: assertFloorState({ ...state.floor, ...action.patch }) };
     case "set-active-tab":
@@ -109,6 +115,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         name: `Preset ${state.presets.length + 1}`,
         light: { ...state.light, locked: false },
         valueMode: state.valueMode,
+        valueRamp: state.valueRamp,
       };
       return { ...state, presets: [nextPreset, ...state.presets].slice(0, 8) };
     }
@@ -121,6 +128,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         light: assertLightState({ ...preset.light, locked: false }),
         valueMode: preset.valueMode,
+        valueRamp: preset.valueRamp,
       };
     }
     default:
@@ -128,13 +136,14 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-type PersistableAppState = Pick<AppState, "light" | "valueMode" | "floor" | "presets">;
+type PersistableAppState = Pick<AppState, "light" | "valueMode" | "valueRamp" | "floor" | "presets">;
 
 export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
-    version: 1,
+    version: 2,
     light: state.light,
     valueMode: state.valueMode,
+    valueRamp: state.valueRamp,
     floor: state.floor,
     presets: state.presets,
   };
@@ -280,7 +289,7 @@ function assertFloorState(value: unknown): FloorState {
   };
 }
 
-function assertPreset(value: unknown): LightPreset {
+function assertPreset(value: unknown, requireValueRamp: boolean): LightPreset {
   if (!isRecord(value)) {
     throw new Error("Invalid preset: expected object");
   }
@@ -288,11 +297,19 @@ function assertPreset(value: unknown): LightPreset {
   const valueMode = value.valueMode;
   assertValueMode(valueMode);
 
+  let valueRamp = DEFAULT_VALUE_RAMP;
+  if ("valueRamp" in value) {
+    valueRamp = assertValueRampState(value.valueRamp);
+  } else if (requireValueRamp) {
+    throw new Error("Invalid preset value ramp: expected object");
+  }
+
   return {
     id: assertString(value.id, "preset id"),
     name: assertString(value.name, "preset name"),
     light: assertLightState(value.light),
     valueMode,
+    valueRamp,
   };
 }
 
@@ -301,7 +318,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     throw new Error("Invalid persisted viewer state: expected object");
   }
 
-  if (value.version !== 1) {
+  if (value.version !== 1 && value.version !== 2) {
     throw new Error(`Unsupported persisted viewer state version: ${String(value.version)}`);
   }
 
@@ -312,11 +329,17 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     throw new Error("Invalid persisted viewer state: presets must be an array");
   }
 
+  const isCurrentVersion = value.version === 2;
+  const valueRamp = isCurrentVersion
+    ? assertValueRampState(value.valueRamp)
+    : DEFAULT_VALUE_RAMP;
+
   return {
-    version: 1,
+    version: 2,
     light: assertLightState(value.light),
     valueMode,
+    valueRamp,
     floor: assertFloorState(value.floor),
-    presets: value.presets.map(assertPreset),
+    presets: value.presets.map((preset) => assertPreset(preset, isCurrentVersion)),
   };
 }

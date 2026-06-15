@@ -9,7 +9,7 @@ import { DEFAULT_MODEL_ORIENTATION, type OrientationAxis } from "./types";
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
-  const { floor, light, presets, valueMode } = state;
+  const { floor, light, presets, valueMode, valueRamp } = state;
   const cameraApiRef = useRef<ViewerCameraApi | null>(null);
   const loadRequestIdRef = useRef(0);
   const previousSourceGeometryRef = useRef<BufferGeometry | null>(null);
@@ -68,8 +68,8 @@ export default function App() {
   }, [state.model]);
 
   useEffect(() => {
-    writePersistedState({ floor, light, presets, valueMode });
-  }, [floor, light, presets, valueMode]);
+    writePersistedState({ floor, light, presets, valueMode, valueRamp });
+  }, [floor, light, presets, valueMode, valueRamp]);
 
   useEffect(() => {
     const currentSourceGeometry = state.model?.sourceGeometry ?? null;

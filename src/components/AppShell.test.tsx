@@ -71,4 +71,14 @@ describe("AppShell accessibility", () => {
     expect(within(mobileValueMode).getByRole("radio", { name: "3-Step" })).toBeInTheDocument();
     expect(within(mobileValueMode).getByRole("radio", { name: "5-Step" })).toBeInTheDocument();
   });
+
+  it("exposes desktop and mobile value ramp controls", () => {
+    renderShell({ activeTab: "view" });
+
+    expect(screen.getByTestId("desktop-value-ramp-control")).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-value-ramp-control")).toBeInTheDocument();
+    expect(screen.getAllByRole("slider", { name: /Shadow Value/ })).toHaveLength(2);
+    expect(screen.getAllByRole("slider", { name: /Highlight Value/ })).toHaveLength(2);
+    expect(screen.getAllByRole("slider", { name: /Band Bias/ })).toHaveLength(2);
+  });
 });

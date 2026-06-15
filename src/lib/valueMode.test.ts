@@ -10,18 +10,23 @@ describe("value mode math", () => {
 
   it("quantizes three-step mode", () => {
     const descriptor = getValueModeDescriptor("three-step");
-    expect(quantizeValue(0, "three-step")).toBe(descriptor.minValue);
-    expect(quantizeValue(0.3, "three-step")).toBeGreaterThanOrEqual(descriptor.minValue);
-    expect(quantizeValue(0.3, "three-step")).toBeLessThanOrEqual(descriptor.maxValue);
-    expect(quantizeValue(0.5, "three-step")).toBeCloseTo(0.5);
-    expect(quantizeValue(1, "three-step")).toBe(descriptor.maxValue);
+    expect(descriptor.stepCount).toBe(3);
+    expect(quantizeValue(0, "three-step")).toBe(0);
+    expect(quantizeValue(0.32, "three-step")).toBe(0);
+    expect(quantizeValue(0.34, "three-step")).toBe(0.5);
+    expect(quantizeValue(0.66, "three-step")).toBe(0.5);
+    expect(quantizeValue(0.67, "three-step")).toBe(1);
+    expect(quantizeValue(1, "three-step")).toBe(1);
   });
 
   it("quantizes five-step mode", () => {
     const descriptor = getValueModeDescriptor("five-step");
-    expect(quantizeValue(0, "five-step")).toBe(descriptor.minValue);
-    expect(quantizeValue(0.55, "five-step")).toBeGreaterThan(descriptor.minValue);
-    expect(quantizeValue(0.55, "five-step")).toBeLessThan(descriptor.maxValue);
-    expect(quantizeValue(1, "five-step")).toBe(descriptor.maxValue);
+    expect(descriptor.stepCount).toBe(5);
+    expect(quantizeValue(0, "five-step")).toBe(0);
+    expect(quantizeValue(0.19, "five-step")).toBe(0);
+    expect(quantizeValue(0.2, "five-step")).toBe(0.25);
+    expect(quantizeValue(0.55, "five-step")).toBe(0.5);
+    expect(quantizeValue(0.8, "five-step")).toBe(1);
+    expect(quantizeValue(1, "five-step")).toBe(1);
   });
 });

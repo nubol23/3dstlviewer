@@ -8,6 +8,7 @@ import {
   STORAGE_KEY,
   DEFAULT_LIGHT,
 } from "../state";
+import { DEFAULT_VALUE_RAMP } from "../lib/valueRamp";
 import {
   computeFitState,
   quantizeValue,
@@ -238,6 +239,7 @@ describe("reducer fail-fast validation", () => {
     expect(() => appReducer(state, { type: "set-value-mode", valueMode: "bad" as never })).toThrow("Unsupported value mode");
     expect(() => appReducer(state, { type: "set-active-tab", activeTab: "missing" as never })).toThrow("Unsupported active tab");
     expect(() => appReducer(state, { type: "set-light", patch: { intensity: Number.NaN } })).toThrow("Invalid light intensity");
+    expect(() => appReducer(state, { type: "set-value-ramp", patch: { bandBias: Infinity } })).toThrow("Invalid value ramp band bias");
     expect(() => appReducer(state, { type: "set-floor", patch: { roughness: Infinity } })).toThrow("Invalid floor roughness");
   });
 });
@@ -289,6 +291,49 @@ describe("persistence codec", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
+  it("migrates version 1 persisted state with default value ramp settings", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        light: createInitialState().light,
+        valueMode: "five-step",
+        floor: { color: "#000", roughness: 1 },
+        presets: [
+          {
+            id: "legacy",
+            name: "Legacy",
+            light: createInitialState().light,
+            valueMode: "three-step",
+          },
+        ],
+      }),
+    );
+
+    const parsed = readPersistedState();
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.valueRamp).toEqual(DEFAULT_VALUE_RAMP);
+    expect(parsed?.presets[0]?.valueRamp).toEqual(DEFAULT_VALUE_RAMP);
+  });
+
+  it("resets current persisted state that is missing value ramp settings", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        light: createInitialState().light,
+        valueMode: "shaded",
+        floor: { color: "#000", roughness: 1 },
+        presets: [],
+      }),
+    );
+
+    expect(readPersistedState()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
   it("migrates the legacy backlit default light to the front-side default", () => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -323,5 +368,28 @@ describe("persistence codec", () => {
     expect(state.light.locked).toBe(true);
     expect(state.presets[0]?.name).toBe("Front Left");
     expect(state.presets[0]?.light.azimuthDeg).toBe(315);
+    expect(state.valueRamp).toEqual(DEFAULT_VALUE_RAMP);
+  });
+
+  it("saves and restores value ramp settings in presets", () => {
+    const state = appReducer(createInitialState(), {
+      type: "set-value-ramp",
+      patch: { shadowLightness: 24, highlightLightness: 92, bandBias: 0.12 },
+    });
+    const withPreset = appReducer(state, { type: "save-preset" });
+    const changed = appReducer(withPreset, {
+      type: "set-value-ramp",
+      patch: { shadowLightness: 10, highlightLightness: 70, bandBias: -0.1 },
+    });
+    const restored = appReducer(changed, {
+      type: "load-preset",
+      presetId: withPreset.presets[0]?.id ?? "missing",
+    });
+
+    expect(restored.valueRamp).toEqual({
+      shadowLightness: 24,
+      highlightLightness: 92,
+      bandBias: 0.12,
+    });
   });
 });
