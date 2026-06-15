@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useId } from "react";
+import type { ValueMode } from "../types";
 
 type RangeControlProps = {
   label: string;
@@ -25,15 +27,23 @@ export function RangeControl({
   formatValue,
   testId,
 }: RangeControlProps) {
+  if (max <= min) {
+    throw new Error(`Invalid range control "${label}": max must be greater than min`);
+  }
+
+  const inputId = useId();
   const display = formatValue ? formatValue(value) : `${value.toFixed(suffix === "m" ? 1 : 2)}${suffix ?? ""}`;
+  const fillPercent = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+  const inputStyle = { "--range-fill": `${fillPercent}%` } as CSSProperties;
 
   return (
-    <label className="slider-block">
-      <span className="slider-block__label">
+    <div className="slider-block">
+      <label className="slider-block__label" htmlFor={inputId}>
         <span>{label}</span>
         <span>{display}</span>
-      </span>
+      </label>
       <input
+        id={inputId}
         className="slider-block__input"
         type="range"
         data-testid={testId}
@@ -41,6 +51,7 @@ export function RangeControl({
         max={max}
         step={step}
         value={value}
+        style={inputStyle}
         onChange={(event) => onChange(Number(event.target.value))}
         disabled={disabled}
       />
@@ -48,11 +59,9 @@ export function RangeControl({
         <span>{min}</span>
         <span>{max}</span>
       </span>
-    </label>
+    </div>
   );
 }
-
-type ValueMode = "shaded" | "three-step" | "five-step";
 
 type SegmentOption = {
   value: ValueMode;
@@ -64,6 +73,8 @@ type SegmentedControlProps = {
   value: ValueMode;
   onChange: (next: ValueMode) => void;
   disabled?: boolean;
+  name?: string;
+  idPrefix?: string;
   testId?: string;
 };
 
@@ -72,23 +83,37 @@ export function SegmentedControl({
   value,
   onChange,
   disabled,
+  name,
+  idPrefix,
   testId,
 }: SegmentedControlProps) {
+  const generatedName = useId();
+  const radioName = name ?? `value-mode-${generatedName}`;
+  const radioIdPrefix = idPrefix ?? `value-mode-option-${generatedName}`;
+
   return (
-    <div className="segmented" role="tablist" aria-label="Value mode" data-testid={testId}>
+    <div className="segmented" role="radiogroup" aria-label="Value mode" data-testid={testId}>
       {options.map((option) => {
         const active = option.value === value;
+        const optionId = `${radioIdPrefix}-${option.value}`;
         return (
-          <button
+          <label
             className={`segment-btn${active ? " is-active" : ""}`}
+            htmlFor={optionId}
             key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            disabled={disabled}
-            aria-pressed={active}
           >
+            <input
+              id={optionId}
+              className="visually-hidden"
+              type="radio"
+              name={radioName}
+              value={option.value}
+              checked={active}
+              disabled={disabled}
+              onChange={() => onChange(option.value)}
+            />
             {option.label}
-          </button>
+          </label>
         );
       })}
     </div>

@@ -3,7 +3,7 @@ import { Canvas, useThree } from "@react-three/fiber";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type CameraControlsType from "camera-controls";
-import { Box3, Color, PCFSoftShadowMap, Vector3 } from "three";
+import { Box3, Color, PCFShadowMap, Vector3 } from "three";
 import { Floor } from "./Floor";
 import { SceneLighting } from "./SceneLighting";
 import { StlModel } from "./StlModel";
@@ -61,7 +61,7 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
         gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         onCreated={({ gl, scene }) => {
           gl.shadowMap.enabled = true;
-          gl.shadowMap.type = PCFSoftShadowMap;
+          gl.shadowMap.type = PCFShadowMap;
           scene.background = new Color("#c9c9c6");
         }}
       >
@@ -82,7 +82,7 @@ type CameraRigProps = {
 };
 
 function CameraRig({ controlsRef, fittedBounds }: CameraRigProps) {
-  const { camera, size } = useThree();
+  const { camera } = useThree();
 
   useEffect(() => {
     const controls = controlsRef.current;
@@ -108,7 +108,7 @@ function CameraRig({ controlsRef, fittedBounds }: CameraRigProps) {
 
   useEffect(() => {
     fitCamera(controlsRef.current, fittedBounds);
-  }, [controlsRef, fittedBounds, size.width, size.height]);
+  }, [controlsRef, fittedBounds]);
 
   return (
     <CameraControls

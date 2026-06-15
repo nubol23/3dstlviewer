@@ -28,7 +28,14 @@ export const VALUE_MODE_DESCRIPTORS: Record<ValueMode, ValueModeDescriptor> = {
   },
 };
 
+export function assertValueMode(mode: unknown): asserts mode is ValueMode {
+  if (mode !== "shaded" && mode !== "three-step" && mode !== "five-step") {
+    throw new Error(`Unsupported value mode: ${String(mode)}`);
+  }
+}
+
 export function getValueModeDescriptor(mode: ValueMode): ValueModeDescriptor {
+  assertValueMode(mode);
   return VALUE_MODE_DESCRIPTORS[mode];
 }
 

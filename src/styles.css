@@ -24,6 +24,7 @@ body,
 #root {
   margin: 0;
   width: 100%;
+  height: 100%;
   min-height: 100%;
 }
 
@@ -40,12 +41,24 @@ label {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 10px;
   background: linear-gradient(180deg, #0e1217 0%, var(--bg) 100%);
   padding: 10px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .toolbar {
@@ -106,8 +119,18 @@ label {
   cursor: pointer;
 }
 
-.toolbar__file:hover {
+.toolbar__file-control {
+  display: inline-flex;
+}
+
+.toolbar__file:hover,
+.toolbar__file-input:focus-visible + .toolbar__file {
   border-color: #495264;
+}
+
+.toolbar__file-input:focus-visible + .toolbar__file {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .mobile-toolbar {
@@ -287,12 +310,26 @@ input[type="range"]:disabled {
   padding: 6px 8px;
   font-size: 12px;
   background: #151a20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
 .segment-btn.is-active {
   background: linear-gradient(180deg, #17757a, #0e5e64);
   color: #fff;
   box-shadow: inset 0 0 0 1px rgba(88, 213, 208, 0.35);
+}
+
+.segment-btn:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.segment-btn:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .slider-block {
@@ -355,8 +392,8 @@ input[type="range"]:disabled {
 }
 
 .orientation-control__readout {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -419,6 +456,7 @@ input[type="range"]:disabled {
 }
 
 .sun-dome {
+  appearance: none;
   aspect-ratio: 1 / 1;
   width: 100%;
   position: relative;
@@ -427,7 +465,18 @@ input[type="range"]:disabled {
   background:
     radial-gradient(circle at 50% 58%, rgba(126, 136, 140, 0.2), transparent 64%),
     #11161b;
+  cursor: crosshair;
   overflow: hidden;
+  padding: 0;
+}
+
+.sun-dome:disabled {
+  cursor: not-allowed;
+}
+
+.sun-dome:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .sun-dome__ring {
@@ -514,7 +563,7 @@ input[type="range"] {
   appearance: none;
   height: 4px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), var(--accent)) 0 / 52% 100% no-repeat, #34383d;
+  background: linear-gradient(90deg, var(--accent), var(--accent)) 0 / var(--range-fill, 0%) 100% no-repeat, #34383d;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -607,7 +656,7 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(255, 111, 106, 0.12);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .desktop-toolbar,
   .panel-right,
   .panel-left {
@@ -615,7 +664,10 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .app-shell {
+    height: 100dvh;
+    min-height: 100dvh;
     padding-bottom: 0;
+    overflow: hidden;
   }
 
   .mobile-toolbar {
@@ -630,7 +682,7 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .mobile-toolbar__icon,
-  .mobile-toolbar__menu {
+  .mobile-toolbar .toolbar__file {
     width: 34px;
     height: 34px;
     border-radius: 8px;
@@ -649,9 +701,11 @@ input[type="range"]::-moz-range-thumb {
 
   .workbench {
     grid-template-columns: 1fr;
+    flex: 1;
     gap: 0;
-    height: calc(100vh - 72px);
-    padding-bottom: 48vh;
+    height: auto;
+    min-height: 0;
+    padding-bottom: 0;
     overflow: hidden;
   }
 
@@ -660,9 +714,9 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .viewport {
-    border-radius: 0;
-    height: calc(100vh - 72px - 48vh);
-    min-height: 260px;
+    border-radius: 8px 8px 0 0;
+    height: auto;
+    min-height: 0;
   }
 
   .viewer-shell {
@@ -681,12 +735,10 @@ input[type="range"]::-moz-range-thumb {
 
   .mobile-sheet {
     display: flex;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 48vh;
-    min-height: 280px;
+    position: relative;
+    height: clamp(220px, 42dvh, 320px);
+    min-height: 0;
+    flex: 0 0 clamp(220px, 42dvh, 320px);
     background: rgba(15, 18, 22, 0.98);
     border-top: 1px solid var(--line);
     border-left: 1px solid var(--line);

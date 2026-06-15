@@ -14,7 +14,8 @@ import {
   sphericalToCartesian,
 } from "./workerDHelpers";
 import { createCubeGeometry } from "./fixtures";
-import { Vector3 } from "three";
+import { Box3, BufferGeometry, Vector3 } from "three";
+import type { LoadedModel } from "../types";
 
 const localStorageMock = () => {
   const store = new Map<string, string>();
@@ -43,6 +44,30 @@ beforeEach(() => {
   (globalThis as unknown as { localStorage: Storage }).localStorage = localStorageMock();
   localStorage.clear();
 });
+
+function createModelStub(id: string, fileName: string): LoadedModel {
+  const bounds = new Box3(new Vector3(0, 0, 0), new Vector3(1, 1, 1));
+  return {
+    id,
+    sourceGeometry: new BufferGeometry(),
+    geometry: new BufferGeometry(),
+    orientation: { operations: [] },
+    metadata: {
+      fileName,
+      fileSize: 128,
+      triangleCount: 1,
+      loadedAt: 1,
+    },
+    fit: {
+      originalBounds: bounds.clone(),
+      fittedBounds: bounds.clone(),
+      center: new Vector3(0.5, 0.5, 0.5),
+      size: new Vector3(1, 1, 1),
+      radius: Math.sqrt(3) / 2,
+      scale: 1,
+    },
+  };
+}
 
 describe("light spherical conversion", () => {
   it("maps azimuth and elevation at distance onto unit sphere with distance scaling", () => {
@@ -176,6 +201,47 @@ describe("light reducer lock semantics", () => {
   });
 });
 
+describe("load reducer lifecycle", () => {
+  it("ignores stale successes and stale errors", () => {
+    const state = createInitialState();
+    const older = createModelStub("older", "older.stl");
+    const newer = createModelStub("newer", "newer.stl");
+
+    const loadingOlder = appReducer(state, { type: "load-start", requestId: 1 });
+    const loadingNewer = appReducer(loadingOlder, { type: "load-start", requestId: 2 });
+    const newerLoaded = appReducer(loadingNewer, { type: "load-success", requestId: 2, model: newer });
+    const staleOlderLoaded = appReducer(newerLoaded, { type: "load-success", requestId: 1, model: older });
+    const staleOlderError = appReducer(staleOlderLoaded, { type: "load-error", requestId: 1, message: "older failed" });
+
+    expect(staleOlderError.model).toBe(newer);
+    expect(staleOlderError.error).toBeNull();
+    expect(staleOlderError.isLoading).toBe(false);
+  });
+
+  it("keeps the previous model when the latest replacement fails", () => {
+    const model = createModelStub("current", "current.stl");
+    const loading = appReducer(createInitialState(), { type: "load-start", requestId: 1 });
+    const loaded = appReducer(loading, { type: "load-success", requestId: 1, model });
+    const loadingReplacement = appReducer(loaded, { type: "load-start", requestId: 2 });
+    const failed = appReducer(loadingReplacement, { type: "load-error", requestId: 2, message: "replacement failed" });
+
+    expect(failed.model).toBe(model);
+    expect(failed.error).toBe("replacement failed. Previous model remains loaded.");
+    expect(failed.isLoading).toBe(false);
+  });
+});
+
+describe("reducer fail-fast validation", () => {
+  it("throws for invalid runtime state payloads", () => {
+    const state = createInitialState();
+
+    expect(() => appReducer(state, { type: "set-value-mode", valueMode: "bad" as never })).toThrow("Unsupported value mode");
+    expect(() => appReducer(state, { type: "set-active-tab", activeTab: "missing" as never })).toThrow("Unsupported active tab");
+    expect(() => appReducer(state, { type: "set-light", patch: { intensity: Number.NaN } })).toThrow("Invalid light intensity");
+    expect(() => appReducer(state, { type: "set-floor", patch: { roughness: Infinity } })).toThrow("Invalid floor roughness");
+  });
+});
+
 describe("persistence codec", () => {
   it("round-trips a persisted state through storage", () => {
     localStorage.clear();
@@ -191,7 +257,7 @@ describe("persistence codec", () => {
     expect(parsed).not.toBeNull();
   });
 
-  it("throws on invalid persisted schema values", () => {
+  it("resets invalid persisted schema values", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -203,10 +269,11 @@ describe("persistence codec", () => {
       }),
     );
 
-    expect(() => readPersistedState()).toThrowError("Unsupported value mode");
+    expect(readPersistedState()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it("throws on unsupported version", () => {
+  it("resets unsupported versions", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -218,7 +285,8 @@ describe("persistence codec", () => {
       }),
     );
 
-    expect(() => readPersistedState()).toThrowError("Unsupported persisted viewer state version");
+    expect(readPersistedState()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("migrates the legacy backlit default light to the front-side default", () => {

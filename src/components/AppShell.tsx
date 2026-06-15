@@ -1,6 +1,7 @@
-import type { AppAction, AppState, LoadedModel, OrientationAxis } from "../types";
-import { Box, Menu, FolderOpen, RotateCcw, RotateCw, Lock, SlidersHorizontal } from "lucide-react";
-import type { ChangeEvent, Dispatch, ReactNode } from "react";
+import type { ActiveTab, AppAction, AppState, LoadedModel, OrientationAxis, OrientationTurnOperation } from "../types";
+import { Box, FolderOpen, RotateCcw, RotateCw, Lock, SlidersHorizontal } from "lucide-react";
+import type { ChangeEvent, Dispatch, KeyboardEvent, ReactNode } from "react";
+import { useId } from "react";
 import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
 import { IconButton } from "./IconButton";
 import { SunDomeControl } from "./SunDomeControl";
@@ -23,6 +24,11 @@ type AppShellProps = {
 };
 
 const ORIENTATION_AXES: OrientationAxis[] = ["x", "y", "z"];
+const MOBILE_TABS: Array<{ value: ActiveTab; label: string }> = [
+  { value: "light", label: "Light" },
+  { value: "model", label: "Model" },
+  { value: "view", label: "View" },
+];
 
 function FileSummary({ model }: { model: AppState["model"] }) {
   if (!model) {
@@ -44,9 +50,10 @@ function FileSummary({ model }: { model: AppState["model"] }) {
   );
 }
 
-function formatQuarterTurn(turn: number): string {
-  const degrees = turn === 3 ? -90 : turn * 90;
-  return `${degrees}°`;
+function formatOrientationOperation(operation: OrientationTurnOperation): string {
+  const direction = operation.quarterTurns === 3 ? "-" : "+";
+  const degrees = operation.quarterTurns === 3 ? 90 : operation.quarterTurns * 90;
+  return `${operation.axis.toUpperCase()} ${direction}${degrees}°`;
 }
 
 function ModelOrientationControls({
@@ -59,15 +66,20 @@ function ModelOrientationControls({
   onResetModelOrientation: () => void;
 }) {
   const disabled = !model;
+  const operations = model?.orientation.operations ?? [];
 
   return (
     <div className="orientation-control" data-testid="model-orientation-control">
       <div className="orientation-control__readout" aria-label="Model orientation">
-        {ORIENTATION_AXES.map((axis) => (
-          <span key={axis}>
-            {axis.toUpperCase()} {formatQuarterTurn(model?.orientation[axis] ?? 0)}
-          </span>
-        ))}
+        {operations.length ? (
+          operations.map((operation, index) => (
+            <span key={`${operation.axis}-${operation.quarterTurns}-${index}`}>
+              {index + 1}. {formatOrientationOperation(operation)}
+            </span>
+          ))
+        ) : (
+          <span>Identity</span>
+        )}
       </div>
       <div className="orientation-control__grid">
         {ORIENTATION_AXES.map((axis) => (
@@ -109,6 +121,48 @@ function ModelOrientationControls({
   );
 }
 
+function FileInputControl({
+  id,
+  testId,
+  compact = false,
+  onChange,
+}: {
+  id: string;
+  testId: string;
+  compact?: boolean;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div className="toolbar__file-control">
+      <input
+        id={id}
+        className="toolbar__file-input visually-hidden"
+        data-testid={testId}
+        type="file"
+        accept=".stl"
+        onChange={onChange}
+      />
+      <label className="toolbar__file" htmlFor={id} aria-label={compact ? "Open STL" : undefined}>
+        <FolderOpen size={16} />
+        <span className={compact ? "visually-hidden" : undefined}>Open STL</span>
+      </label>
+    </div>
+  );
+}
+
+function LiveRegions({ state }: { state: AppState }) {
+  return (
+    <div className="visually-hidden">
+      <div role="status" aria-live="polite" aria-atomic="true">
+        {state.isLoading ? "Loading STL..." : ""}
+      </div>
+      <div role="alert" aria-atomic="true">
+        {state.error ?? ""}
+      </div>
+    </div>
+  );
+}
+
 export function AppShell({
   state,
   dispatch,
@@ -120,6 +174,9 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const lightLocked = state.light.locked;
+  const desktopFileInputId = useId();
+  const mobileFileInputId = useId();
+  const mobileTabBaseId = useId();
 
   const handleLockToggle = () => {
     dispatch({ type: "toggle-lock" });
@@ -149,33 +206,69 @@ export function AppShell({
     }
   };
 
+  const focusMobileTab = (tab: ActiveTab) => {
+    requestAnimationFrame(() => {
+      document.getElementById(`${mobileTabBaseId}-${tab}-tab`)?.focus();
+    });
+  };
+
+  const setMobileTab = (activeTab: ActiveTab) => {
+    dispatch({ type: "set-active-tab", activeTab });
+    focusMobileTab(activeTab);
+  };
+
+  const handleMobileTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, activeTab: ActiveTab) => {
+    const currentIndex = MOBILE_TABS.findIndex((tab) => tab.value === activeTab);
+    const lastIndex = MOBILE_TABS.length - 1;
+    let nextIndex: number | null = null;
+
+    if (event.key === "ArrowLeft") {
+      nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
+    } else if (event.key === "ArrowRight") {
+      nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = lastIndex;
+    } else if (event.key === "Enter" || event.key === " ") {
+      nextIndex = currentIndex;
+    }
+
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    setMobileTab(MOBILE_TABS[nextIndex].value);
+  };
+
   return (
     <div className="app-shell">
+      <LiveRegions state={state} />
       <header className="toolbar desktop-toolbar">
         <div className="toolbar__brand">
           <Box size={24} className="brand-mark" />
           <span className="toolbar__title">Miniature Light Studio</span>
         </div>
         <div className="toolbar__actions">
-          <label className="toolbar__file">
-            <FolderOpen size={16} />
-            Open STL
-            <input id="stl-file-input" data-testid="stl-file-input" type="file" accept=".stl" hidden onChange={handleFileChange} />
-          </label>
+          <FileInputControl id={desktopFileInputId} testId="stl-file-input" onChange={handleFileChange} />
           <IconButton icon={<RotateCcw size={16} />} onClick={onResetView} data-testid="reset-view-button">
             Reset View
           </IconButton>
           <IconButton icon={<Lock size={16} />} onClick={handleLockToggle} isActive={lightLocked} data-testid="lock-light-button">
             Lock Light
           </IconButton>
-          <SegmentedControl options={VALUE_OPTIONS} value={state.valueMode} onChange={setValueMode} testId="value-mode-control" />
+          <SegmentedControl
+            options={VALUE_OPTIONS}
+            value={state.valueMode}
+            onChange={setValueMode}
+            name="desktop-value-mode"
+            testId="value-mode-control"
+          />
         </div>
       </header>
 
       <header className="toolbar mobile-toolbar">
-        <button className="mobile-toolbar__menu" type="button">
-          <Menu size={18} />
-        </button>
         <div className="mobile-toolbar__brand">
           <Box size={24} />
           <span>
@@ -184,10 +277,7 @@ export function AppShell({
           </span>
         </div>
         <div className="mobile-toolbar__actions">
-          <label className="toolbar__file">
-            <FolderOpen size={16} />
-            <input data-testid="mobile-stl-file-input" type="file" accept=".stl" hidden onChange={handleFileChange} />
-          </label>
+          <FileInputControl id={mobileFileInputId} testId="mobile-stl-file-input" compact onChange={handleFileChange} />
           <button className="mobile-toolbar__icon" type="button" onClick={onResetView} aria-label="Reset View">
             <RotateCcw size={16} />
           </button>
@@ -211,12 +301,12 @@ export function AppShell({
             </div>
             <FileSummary model={state.model} />
             {state.isLoading && (
-              <div className="status-line" data-testid="loading-state">
+              <div className="status-line" data-testid="loading-state" aria-hidden="true">
                 Loading STL...
               </div>
             )}
             {state.error && (
-              <div className="error-banner" data-testid="load-error">
+              <div className="error-banner" data-testid="load-error" aria-hidden="true">
                 {state.error}
               </div>
             )}
@@ -289,7 +379,13 @@ export function AppShell({
         <main className="viewport">
           {children}
           <div className="mobile-mode-segmented">
-            <SegmentedControl options={VALUE_OPTIONS} value={state.valueMode} onChange={setValueMode} testId="mobile-value-mode-control" />
+            <SegmentedControl
+              options={VALUE_OPTIONS}
+              value={state.valueMode}
+              onChange={setValueMode}
+              name="mobile-overlay-value-mode"
+              testId="mobile-value-mode-control"
+            />
           </div>
         </main>
 
@@ -307,30 +403,33 @@ export function AppShell({
       </div>
 
       <section className="mobile-sheet">
-        <div className="mobile-sheet__tabs" role="tablist">
-          <button
-            type="button"
-            className={state.activeTab === "light" ? "is-active" : ""}
-            onClick={() => dispatch({ type: "set-active-tab", activeTab: "light" })}
-          >
-            Light
-          </button>
-          <button
-            type="button"
-            className={state.activeTab === "model" ? "is-active" : ""}
-            onClick={() => dispatch({ type: "set-active-tab", activeTab: "model" })}
-          >
-            Model
-          </button>
-          <button
-            type="button"
-            className={state.activeTab === "view" ? "is-active" : ""}
-            onClick={() => dispatch({ type: "set-active-tab", activeTab: "view" })}
-          >
-            View
-          </button>
+        <div className="mobile-sheet__tabs" role="tablist" aria-label="Mobile controls">
+          {MOBILE_TABS.map((tab) => {
+            const active = state.activeTab === tab.value;
+            return (
+              <button
+                id={`${mobileTabBaseId}-${tab.value}-tab`}
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={`${mobileTabBaseId}-${tab.value}-panel`}
+                tabIndex={active ? 0 : -1}
+                className={active ? "is-active" : ""}
+                onClick={() => setMobileTab(tab.value)}
+                onKeyDown={(event) => handleMobileTabKeyDown(event, tab.value)}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
-        <div className="mobile-sheet__body">
+        <div
+          id={`${mobileTabBaseId}-${state.activeTab}-panel`}
+          className="mobile-sheet__body"
+          role="tabpanel"
+          aria-labelledby={`${mobileTabBaseId}-${state.activeTab}-tab`}
+        >
           {state.activeTab === "light" && <SunDomeControl light={state.light} onChange={handleLightChange} disabled={lightLocked} />}
           {state.activeTab === "model" && (
             <section className="panel-section">
@@ -339,8 +438,8 @@ export function AppShell({
                 <span className="status-chip">{state.model ? "Loaded" : "Empty"}</span>
               </div>
               <FileSummary model={state.model} />
-              {state.isLoading && <div className="status-line">Loading STL...</div>}
-              {state.error && <div className="error-banner">{state.error}</div>}
+              {state.isLoading && <div className="status-line" aria-hidden="true">Loading STL...</div>}
+              {state.error && <div className="error-banner" aria-hidden="true">{state.error}</div>}
               <div className="button-row">
                 <button type="button" onClick={onFitToView} disabled={!state.model}>
                   Fit to View
@@ -363,7 +462,12 @@ export function AppShell({
             <div className="mobile-sheet__stack">
               <section className="panel-section">
                 <h3>View</h3>
-                <SegmentedControl options={VALUE_OPTIONS} value={state.valueMode} onChange={setValueMode} />
+                <SegmentedControl
+                  options={VALUE_OPTIONS}
+                  value={state.valueMode}
+                  onChange={setValueMode}
+                  name="mobile-sheet-value-mode"
+                />
               </section>
               <section className="panel-section">
                 <div className="panel-section__header">

@@ -39,6 +39,7 @@ type StudyMaterialProps = Omit<ComponentProps<"meshLambertMaterial">, "children"
   lightDirection?: Vector3;
   bounceStrength?: number;
   light?: LightState;
+  lightTarget?: Vector3;
   floorY?: number;
   floorFalloff?: number;
 };
@@ -64,7 +65,7 @@ varying vec3 vStudyWorldNormal;
     "#include <normal_vertex>",
     `
 #include <normal_vertex>
-vStudyWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+vStudyWorldNormal = normalize(inverseTransformDirection(transformedNormal, viewMatrix));
 `,
   );
   shader.vertexShader = shader.vertexShader.replace(
@@ -104,8 +105,7 @@ float shadowSide = 1.0 - lightFacing;
 float floorHeight = abs(vStudyWorldPosition.y - uStudyFloorY);
 float floorLift = exp2(-floorHeight / max(uStudyFloorFalloff, 0.0001));
 float bounce = uStudyBounceStrength * (0.18 + 0.52 * shadowSide) * (0.35 + 0.65 * downFacing) * mix(0.35, 1.0, floorLift);
-float shadowLift = 0.10 + 0.10 * shadowSide;
-float studyValue = clamp(max(studyLuma, lightFacing * 0.32) + shadowLift + bounce, 0.0, 1.0);
+float studyValue = clamp(studyLuma + bounce, 0.0, 1.0);
 
 if (uStudyModeSteps > 1) {
   float normalized = clamp((studyValue - uStudyModeMin) / max(uStudyModeMax - uStudyModeMin, 0.0001), 0.0, 1.0);
@@ -124,6 +124,7 @@ export function StudyMaterial({
   lightDirection,
   bounceStrength,
   light,
+  lightTarget,
   floorY = 0,
   floorFalloff = 1,
   ...materialProps
@@ -133,37 +134,33 @@ export function StudyMaterial({
   }
 
   const descriptor = getValueModeDescriptor(valueMode);
-  const derived = useMemo(() => {
-    if (lightDirection && bounceStrength !== undefined) {
-      return {
-        direction: lightDirection,
-        strength: bounceStrength,
-      };
-    }
+  let derivedDirection: Vector3;
+  let derivedStrength: number;
 
+  if (lightDirection && bounceStrength !== undefined) {
+    derivedDirection = lightDirection;
+    derivedStrength = bounceStrength;
+  } else {
     if (!light) {
       throw new Error("StudyMaterial cannot derive lighting without a light state.");
     }
 
-    const pose = lightPoseFromState(light);
-    return {
-      direction: pose.direction,
-      strength: light.bounceStrength,
-    };
-  }, [bounceStrength, light, lightDirection]);
+    const pose = lightPoseFromState(light, lightTarget);
+    derivedDirection = pose.direction;
+    derivedStrength = light.bounceStrength;
+  }
 
   const materialRef = useRef<MeshLambertMaterial>(null);
-  const lightDirectionNormalized = useMemo(() => {
-    const direction = derived.direction.clone();
-    const magnitude = direction.length();
-    if (magnitude === 0) {
-      direction.set(0, 1, 0);
-    } else {
-      direction.divideScalar(magnitude);
-    }
-
-    return direction;
-  }, [derived.direction.x, derived.direction.y, derived.direction.z]);
+  const lightDirectionNormalized = derivedDirection.clone();
+  const directionMagnitude = lightDirectionNormalized.length();
+  if (directionMagnitude === 0) {
+    lightDirectionNormalized.set(0, 1, 0);
+  } else {
+    lightDirectionNormalized.divideScalar(directionMagnitude);
+  }
+  const lightDirectionX = lightDirectionNormalized.x;
+  const lightDirectionY = lightDirectionNormalized.y;
+  const lightDirectionZ = lightDirectionNormalized.z;
 
   const shaderSettings = useMemo(
     () => ({
@@ -185,8 +182,8 @@ export function StudyMaterial({
       return;
     }
 
-    shader.uniforms.uStudySunDirection.value.copy(lightDirectionNormalized);
-    shader.uniforms.uStudyBounceStrength.value = derived.strength;
+    shader.uniforms.uStudySunDirection.value.set(lightDirectionX, lightDirectionY, lightDirectionZ);
+    shader.uniforms.uStudyBounceStrength.value = derivedStrength;
     shader.uniforms.uStudyFloorY.value = floorY;
     shader.uniforms.uStudyFloorFalloff.value = shaderSettings.floorFalloff;
     shader.uniforms.uStudyModeSteps.value = shaderSettings.stepCount;
@@ -194,15 +191,15 @@ export function StudyMaterial({
     shader.uniforms.uStudyModeMax.value = shaderSettings.maxValue;
   }, [
     floorY,
-    lightDirectionNormalized.x,
-    lightDirectionNormalized.y,
-    lightDirectionNormalized.z,
+    lightDirectionX,
+    lightDirectionY,
+    lightDirectionZ,
     shaderSettings.stepCount,
     shaderSettings.floorFalloff,
     shaderSettings.maxValue,
     shaderSettings.minValue,
     valueMode,
-    derived.strength,
+    derivedStrength,
   ]);
 
   return (
@@ -212,7 +209,7 @@ export function StudyMaterial({
       onBeforeCompile={(shader: any): void => {
         injectStudyShader(shader, {
           lightDirection: lightDirectionNormalized,
-          bounceStrength: derived.strength,
+          bounceStrength: derivedStrength,
           floorY,
           floorFalloff: shaderSettings.floorFalloff,
           stepCount: shaderSettings.stepCount,

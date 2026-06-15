@@ -2,7 +2,7 @@ import { MathUtils, Vector3 } from "three";
 
 import type { LightState, ModelFitState } from "../types";
 
-export const SHADOW_MAP_SIZE_MIN = 256;
+export const SHADOW_MAP_SIZE_MIN = 512;
 export const SHADOW_MAP_SIZE_MAX = 2048;
 
 const LIGHT_DISTANCE_MIN = 0.25;
@@ -72,7 +72,7 @@ export function lightPoseFromState(
     light.azimuthDeg,
     light.elevationDeg,
     light.distance,
-  );
+  ).add(target);
   failFastNumber(target.x, "target x");
   failFastNumber(target.y, "target y");
   failFastNumber(target.z, "target z");
@@ -113,15 +113,18 @@ export function computeDirectionalShadowConfig(
 
 export function computeShadowMapSize(softness: number): number {
   const normalized = clamp01(softness);
-  const raw = Math.round(
-    MathUtils.lerp(SHADOW_MAP_SIZE_MIN, SHADOW_MAP_SIZE_MAX, normalized),
-  );
-  return Math.max(SHADOW_MAP_SIZE_MIN, raw);
+  if (normalized < 1 / 3) {
+    return 512;
+  }
+  if (normalized < 2 / 3) {
+    return 1024;
+  }
+  return 2048;
 }
 
 export function computeShadowRadius(softness: number): number {
   const normalized = clamp01(softness);
-  return MathUtils.lerp(0.4, 4.5, normalized);
+  return MathUtils.lerp(1, 4.5, normalized);
 }
 
 export function computeShadowBias(softness: number): number {

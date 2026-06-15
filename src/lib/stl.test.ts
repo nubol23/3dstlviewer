@@ -58,6 +58,35 @@ function createOffsetGeometry(): BufferGeometry {
   return geometry;
 }
 
+function createIndexedQuadGeometry(): BufferGeometry {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new BufferAttribute(
+      Float32Array.from([
+        0, 0, 0,
+        1, 0, 0,
+        0, 1, 0,
+        1, 1, 0,
+      ]),
+      3,
+    ),
+  );
+  geometry.setIndex([0, 1, 2, 2, 1, 3]);
+  return geometry;
+}
+
+function createNonTriangleGeometry(): BufferGeometry {
+  const geometry = createIndexedQuadGeometry();
+  geometry.setIndex(null);
+  return geometry;
+}
+
+function firstPositionTuple(geometry: BufferGeometry): number[] {
+  const position = geometry.getAttribute("position");
+  return [position.getX(0), position.getY(0), position.getZ(0)];
+}
+
 function computePositionBounds(geometry: BufferGeometry): {
   minX: number;
   maxX: number;
@@ -96,11 +125,11 @@ function loadModelFixture(): LoadedModel {
   const parsed = parseStlArrayBuffer({
     arrayBuffer,
     fileName: "triangle.stl",
-    fileSize: 128,
+    fileSize: arrayBuffer.byteLength,
   });
 
   return {
-    id: 123,
+    id: "fixture-model",
     sourceGeometry: parsed.sourceGeometry,
     geometry: parsed.geometry,
     orientation: parsed.orientation,
@@ -115,12 +144,12 @@ describe("STL loading and parsing", () => {
     const result = parseStlArrayBuffer({
       arrayBuffer,
       fileName: "triangle.stl",
-      fileSize: 1024,
+      fileSize: arrayBuffer.byteLength,
     });
 
     expect(result.metadata.triangleCount).toBe(1);
     expect(result.metadata.fileName).toBe("triangle.stl");
-    expect(result.metadata.fileSize).toBe(1024);
+    expect(result.metadata.fileSize).toBe(arrayBuffer.byteLength);
     expect(result.fit.size.x).toBeCloseTo(4);
     expect(result.fit.size.y).toBeCloseTo(4);
 
@@ -160,12 +189,23 @@ describe("STL loading and parsing", () => {
     ).toThrow(/Invalid STL content/);
   });
 
+  it("throws when metadata file size does not match the buffer", () => {
+    const arrayBuffer = createTinyAsciiStl(1);
+    expect(() =>
+      parseStlArrayBuffer({
+        arrayBuffer,
+        fileName: "triangle.stl",
+        fileSize: arrayBuffer.byteLength + 1,
+      }),
+    ).toThrow(/does not match content length/);
+  });
+
   it("normalizes geometry independently and reports fit state", () => {
     const arrayBuffer = createTinyAsciiStl(2);
     const result = parseStlArrayBuffer({
       arrayBuffer,
       fileName: "double-triangle.stl",
-      fileSize: 2048,
+      fileSize: arrayBuffer.byteLength,
     });
 
     expect(result.metadata.triangleCount).toBe(2);
@@ -186,7 +226,7 @@ describe("geometry helpers", () => {
     const { geometry } = parseStlArrayBuffer({
       arrayBuffer,
       fileName: "triangle.stl",
-      fileSize: 16,
+      fileSize: arrayBuffer.byteLength,
     });
 
     expect(() => assertValidGeometry(geometry)).not.toThrow();
@@ -196,15 +236,43 @@ describe("geometry helpers", () => {
     expect(normalized.getAttribute("position").count).toBe(3);
   });
 
+  it("accepts valid indexed geometry and rejects non-triangle exported normalization input", () => {
+    const indexed = createIndexedQuadGeometry();
+    expect(() => assertValidGeometry(indexed)).not.toThrow();
+    expect(getTriangleCountFromGeometry(indexed)).toBe(2);
+    expect(normalizeGeometryForDisplay(indexed).geometry.getAttribute("position").count).toBe(4);
+
+    const nonTriangle = createNonTriangleGeometry();
+    expect(() => assertValidGeometry(nonTriangle)).toThrow(/position count/);
+    expect(() => normalizeGeometryForDisplay(nonTriangle)).toThrow(/position count/);
+  });
+
+  it("rejects degenerate and unnormalizably tiny geometry", () => {
+    const collinear = new BufferGeometry();
+    collinear.setAttribute(
+      "position",
+      new BufferAttribute(Float32Array.from([0, 0, 0, 1, 0, 0, 2, 0, 0]), 3),
+    );
+
+    const tiny = new BufferGeometry();
+    tiny.setAttribute(
+      "position",
+      new BufferAttribute(Float32Array.from([0, 0, 0, 1e-20, 0, 0, 0, 1e-20, 0]), 3),
+    );
+
+    expect(() => assertValidGeometry(collinear)).toThrow(/zero or near-zero area/);
+    expect(() => normalizeGeometryForDisplay(tiny)).toThrow(/too small|too large/);
+  });
+
   it("rotates orientations with wrapping quarter-turn logic", () => {
     const quarter = rotateOrientation(DEFAULT_MODEL_ORIENTATION, "x", 4);
     expect(quarter).toEqual(DEFAULT_MODEL_ORIENTATION);
 
     const wrap = rotateOrientation(DEFAULT_MODEL_ORIENTATION, "y", -1);
-    expect(wrap).toEqual({ x: 0, y: 3, z: 0 });
+    expect(wrap).toEqual({ operations: [{ axis: "y", quarterTurns: 3 }] });
 
-    const stepped = rotateOrientation({ x: 0, y: 2, z: 0 }, "y", 1);
-    expect(stepped).toEqual({ x: 0, y: 3, z: 0 });
+    const stepped = rotateOrientation({ operations: [{ axis: "y", quarterTurns: 2 }] }, "y", 1);
+    expect(stepped).toEqual({ operations: [{ axis: "y", quarterTurns: 3 }] });
   });
 
   it("rebuilds from source geometry and preserves metadata and floor alignment", () => {
@@ -214,7 +282,7 @@ describe("geometry helpers", () => {
     expect(rotated.sourceGeometry).toBe(model.sourceGeometry);
     expect(rotated.metadata).toEqual(model.metadata);
     expect(rotated.fit.fittedBounds.min.y).toBeCloseTo(0);
-    expect(rotated.orientation).toEqual({ x: 1, y: 0, z: 0 });
+    expect(rotated.orientation).toEqual({ operations: [{ axis: "x", quarterTurns: 1 }] });
 
     const modelBounds = computePositionBounds(rotated.geometry);
     expect(modelBounds.minY).toBeCloseTo(0);
@@ -226,12 +294,12 @@ describe("geometry helpers", () => {
     const model = loadModelFixture();
     const fromCurrent = rotateLoadedModel(model, "z", 1);
     const fromCurrentTwice = rotateLoadedModel(fromCurrent, "z", 1);
-    const direct = rebuildLoadedModel(model, { x: 0, y: 0, z: 2 });
+    const direct = rebuildLoadedModel(model, { operations: [{ axis: "z", quarterTurns: 2 }] });
 
     const fromCurrentTwiceBounds = computePositionBounds(fromCurrentTwice.geometry);
     const directBounds = computePositionBounds(direct.geometry);
 
-    expect(fromCurrentTwice.orientation).toEqual({ x: 0, y: 0, z: 2 });
+    expect(fromCurrentTwice.orientation).toEqual({ operations: [{ axis: "z", quarterTurns: 2 }] });
     expect(fromCurrentTwiceBounds.minY).toBeCloseTo(0);
     expect(direct.fit.scale).toBeCloseTo(fromCurrentTwice.fit.scale);
     expect(fromCurrentTwiceBounds.minX).toBeCloseTo(directBounds.minX);
@@ -239,10 +307,26 @@ describe("geometry helpers", () => {
     expect(fromCurrentTwiceBounds.maxY).toBeCloseTo(directBounds.maxY);
   });
 
+  it("preserves mixed-axis rotation order", () => {
+    const model = loadModelFixture();
+    const xThenY = rotateLoadedModel(rotateLoadedModel(model, "x", 1), "y", 1);
+    const yThenX = rotateLoadedModel(rotateLoadedModel(model, "y", 1), "x", 1);
+
+    expect(xThenY.orientation.operations).toEqual([
+      { axis: "x", quarterTurns: 1 },
+      { axis: "y", quarterTurns: 1 },
+    ]);
+    expect(yThenX.orientation.operations).toEqual([
+      { axis: "y", quarterTurns: 1 },
+      { axis: "x", quarterTurns: 1 },
+    ]);
+    expect(firstPositionTuple(xThenY.geometry)).not.toEqual(firstPositionTuple(yThenX.geometry));
+  });
+
   it("applies an orientation to raw geometry before fitting", () => {
     const geometry = createOffsetGeometry();
     const normalizedDefault = normalizeGeometryForDisplay(geometry, DEFAULT_MODEL_ORIENTATION);
-    const normalizedRotated = normalizeGeometryForDisplay(geometry, { x: 0, y: 1, z: 0 });
+    const normalizedRotated = normalizeGeometryForDisplay(geometry, { operations: [{ axis: "y", quarterTurns: 1 }] });
 
     const defaultBounds = computePositionBounds(normalizedDefault.geometry);
     const rotatedBounds = computePositionBounds(normalizedRotated.geometry);

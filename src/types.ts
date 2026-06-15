@@ -6,18 +6,19 @@ export type ActiveTab = "light" | "model" | "view";
 
 export type OrientationTurn = 0 | 1 | 2 | 3;
 
-export type ModelOrientation = {
-  x: OrientationTurn;
-  y: OrientationTurn;
-  z: OrientationTurn;
+export type OrientationAxis = "x" | "y" | "z";
+
+export type OrientationTurnOperation = {
+  axis: OrientationAxis;
+  quarterTurns: Exclude<OrientationTurn, 0>;
 };
 
-export type OrientationAxis = keyof ModelOrientation;
+export type ModelOrientation = {
+  operations: OrientationTurnOperation[];
+};
 
 export const DEFAULT_MODEL_ORIENTATION: ModelOrientation = {
-  x: 0,
-  y: 0,
-  z: 0,
+  operations: [],
 };
 
 export type LightState = {
@@ -47,7 +48,7 @@ export type ModelFitState = {
 };
 
 export type LoadedModel = {
-  id: number;
+  id: string;
   sourceGeometry: BufferGeometry;
   geometry: BufferGeometry;
   orientation: ModelOrientation;
@@ -83,6 +84,7 @@ export type AppState = {
   model: LoadedModel | null;
   error: string | null;
   isLoading: boolean;
+  loadRequestId: number;
   presets: LightPreset[];
 };
 
@@ -93,10 +95,10 @@ export type AppAction =
   | { type: "set-value-mode"; valueMode: ValueMode }
   | { type: "set-floor"; patch: Partial<FloorState> }
   | { type: "set-active-tab"; activeTab: ActiveTab }
-  | { type: "load-start" }
-  | { type: "load-success"; model: LoadedModel }
+  | { type: "load-start"; requestId: number }
+  | { type: "load-success"; requestId: number; model: LoadedModel }
   | { type: "replace-model"; model: LoadedModel }
-  | { type: "load-error"; message: string }
+  | { type: "load-error"; requestId: number; message: string }
   | { type: "clear-error" }
   | { type: "save-preset" }
   | { type: "load-preset"; presetId: string };

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import type { BufferGeometry } from "three";
 import { AppShell } from "./components/AppShell";
 import type { ViewerCameraApi } from "./components/ViewerCanvas";
 import { ViewerCanvas } from "./components/ViewerCanvas";
@@ -8,19 +9,26 @@ import { DEFAULT_MODEL_ORIENTATION, type OrientationAxis } from "./types";
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
+  const { floor, light, presets, valueMode } = state;
   const cameraApiRef = useRef<ViewerCameraApi | null>(null);
+  const loadRequestIdRef = useRef(0);
+  const previousSourceGeometryRef = useRef<BufferGeometry | null>(null);
 
   const handleFileSelected = useCallback(async (file: File) => {
-    dispatch({ type: "load-start" });
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    dispatch({ type: "load-start", requestId });
     try {
       const model = await loadStlFile(file);
-      dispatch({ type: "load-success", model });
+      dispatch({ type: "load-success", requestId, model });
       requestAnimationFrame(() => {
-        cameraApiRef.current?.fitToView();
+        if (loadRequestIdRef.current === requestId) {
+          cameraApiRef.current?.fitToView();
+        }
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load STL file";
-      dispatch({ type: "load-error", message });
+      dispatch({ type: "load-error", requestId, message });
     }
   }, []);
 
@@ -60,8 +68,17 @@ export default function App() {
   }, [state.model]);
 
   useEffect(() => {
-    writePersistedState(state);
-  }, [state.light, state.valueMode, state.floor, state.presets]);
+    writePersistedState({ floor, light, presets, valueMode });
+  }, [floor, light, presets, valueMode]);
+
+  useEffect(() => {
+    const currentSourceGeometry = state.model?.sourceGeometry ?? null;
+    const previousSourceGeometry = previousSourceGeometryRef.current;
+    if (previousSourceGeometry && previousSourceGeometry !== currentSourceGeometry) {
+      previousSourceGeometry.dispose();
+    }
+    previousSourceGeometryRef.current = currentSourceGeometry;
+  }, [state.model?.sourceGeometry]);
 
   return (
     <AppShell

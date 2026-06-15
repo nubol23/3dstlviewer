@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useId, useMemo, useRef } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { LightState } from "../types";
 import { RangeControl } from "./Controls";
 
@@ -25,9 +25,18 @@ function toClamped(value: number): number {
   return Math.max(-1, Math.min(1, value));
 }
 
+function clampElevation(value: number): number {
+  return Math.max(MIN_ELEVATION, Math.min(MAX_ELEVATION, value));
+}
+
+function wrapAzimuth(value: number): number {
+  return ((value % 360) + 360) % 360;
+}
+
 export function SunDomeControl({ light, onChange, disabled = false }: SunDomeControlProps) {
-  const domeRef = useRef<HTMLDivElement | null>(null);
+  const domeRef = useRef<HTMLButtonElement | null>(null);
   const pointerActive = useRef(false);
+  const readoutId = useId();
 
   const spherePosition = useMemo(() => {
     const elevationR = toRads(light.elevationDeg);
@@ -54,7 +63,7 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
 
       const azimuth = ((Math.atan2(x, -y) * 180) / Math.PI + 360) % 360;
       const rawElevation = toClamped(-y / radius) * 78;
-      const elevation = Math.max(MIN_ELEVATION, Math.min(MAX_ELEVATION, rawElevation));
+      const elevation = clampElevation(rawElevation);
       onChange({
         azimuthDeg: Number(azimuth.toFixed(1)),
         elevationDeg: Number(elevation.toFixed(1)),
@@ -64,7 +73,7 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
   );
 
   const onPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (disabled) return;
       pointerActive.current = true;
       domeRef.current?.setPointerCapture(event.pointerId);
@@ -74,7 +83,7 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
   );
 
   const onPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (!pointerActive.current || disabled) return;
       setFromPointer(event.nativeEvent);
     },
@@ -82,7 +91,7 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
   );
 
   const onPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (disabled) return;
       pointerActive.current = false;
       if (!domeRef.current) return;
@@ -91,9 +100,38 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
     [disabled],
   );
 
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (disabled) {
+        return;
+      }
+
+      const step = event.shiftKey ? 15 : 5;
+      let patch: Partial<LightState> | null = null;
+      if (event.key === "ArrowLeft") {
+        patch = { azimuthDeg: wrapAzimuth(light.azimuthDeg - step) };
+      } else if (event.key === "ArrowRight") {
+        patch = { azimuthDeg: wrapAzimuth(light.azimuthDeg + step) };
+      } else if (event.key === "ArrowUp") {
+        patch = { elevationDeg: clampElevation(light.elevationDeg + step) };
+      } else if (event.key === "ArrowDown") {
+        patch = { elevationDeg: clampElevation(light.elevationDeg - step) };
+      }
+
+      if (!patch) {
+        return;
+      }
+
+      event.preventDefault();
+      onChange(patch);
+    },
+    [disabled, light.azimuthDeg, light.elevationDeg, onChange],
+  );
+
   const distanceRing = Math.max(22, Math.min(46, 24 + light.distance * 4));
   const markerLeft = 50 + spherePosition.x * distanceRing;
   const markerTop = 50 + -spherePosition.y * distanceRing;
+  const directionReadout = `Azimuth ${light.azimuthDeg.toFixed(0)} degrees, elevation ${light.elevationDeg.toFixed(0)} degrees`;
 
   return (
     <section className="sun-dome-panel" aria-label="Lighting direction">
@@ -101,23 +139,31 @@ export function SunDomeControl({ light, onChange, disabled = false }: SunDomeCon
         <span>Direction</span>
         <span>Az {formatInt(light.azimuthDeg)} • El {formatInt(light.elevationDeg)}</span>
       </div>
-      <div
+      <button
+        type="button"
         className="sun-dome"
         data-testid="sun-dome"
         ref={domeRef}
+        aria-label="Light direction pad"
+        aria-describedby={readoutId}
+        disabled={disabled}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
+        onKeyDown={onKeyDown}
       >
-        <div
+        <span
           className="sun-dome__ring"
           style={{
             width: `${distanceRing * 2}%`,
             height: `${distanceRing * 2}%`,
           }}
         />
-        <div className="sun-dome__marker" style={{ left: `${markerLeft}%`, top: `${markerTop}%` }} />
+        <span className="sun-dome__marker" style={{ left: `${markerLeft}%`, top: `${markerTop}%` }} />
+      </button>
+      <div id={readoutId} className="visually-hidden" aria-live="polite" aria-atomic="true">
+        {directionReadout}
       </div>
       <div className="sun-dome__sliders">
         <RangeControl

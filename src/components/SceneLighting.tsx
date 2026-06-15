@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { Vector3 } from "three";
 import type { DirectionalLight as DirectionalLightType, Object3D as Object3DType } from "three";
@@ -27,24 +27,20 @@ export function SceneLighting({
 }: SceneLightingProps) {
   const effectiveFit = fit ?? modelFit ?? null;
   const focalTarget = target ?? modelFit?.center ?? fit?.center ?? null;
-
-  const resolvedTarget = useMemo(
-    () => focalTarget ?? new Vector3(),
-    [focalTarget?.x, focalTarget?.y, focalTarget?.z],
-  );
+  const targetX = focalTarget?.x ?? 0;
+  const targetY = focalTarget?.y ?? 0;
+  const targetZ = focalTarget?.z ?? 0;
+  const resolvedTarget = useMemo(() => new Vector3(targetX, targetY, targetZ), [targetX, targetY, targetZ]);
   const { scene } = useThree();
   const lightRef = useRef<DirectionalLightType>(null);
   const targetRef = useRef<Object3DType>(null);
+  const previousShadowMapSizeRef = useRef<number | null>(null);
 
-  const pose = useMemo(
-    () => lightPoseFromState(light, resolvedTarget),
-    [light.azimuthDeg, light.elevationDeg, light.distance, resolvedTarget.x, resolvedTarget.y, resolvedTarget.z],
-  );
-
-  const shadowConfig = useMemo(
-    () => computeDirectionalShadowConfig(effectiveFit, light.distance),
-    [effectiveFit?.radius, light.distance],
-  );
+  const pose = lightPoseFromState(light, resolvedTarget);
+  const lightPositionX = pose.position.x;
+  const lightPositionY = pose.position.y;
+  const lightPositionZ = pose.position.z;
+  const shadowConfig = computeDirectionalShadowConfig(effectiveFit, light.distance);
 
   const shadowMapSize = computeShadowMapSize(light.shadowSoftness);
   const shadowRadius = computeShadowRadius(light.shadowSoftness);
@@ -67,32 +63,63 @@ export function SceneLighting({
     };
   }, [scene]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!lightRef.current || !targetRef.current) {
       return;
     }
 
-    lightRef.current.position.copy(pose.position);
-    targetRef.current.position.copy(resolvedTarget);
-    lightRef.current.target.updateMatrixWorld();
-  }, [pose.position.x, pose.position.y, pose.position.z, resolvedTarget.x, resolvedTarget.y, resolvedTarget.z]);
+    const directional = lightRef.current;
+    const targetObject = targetRef.current;
+    const shadow = directional.shadow;
+    const shadowCamera = shadow.camera;
+    const previousShadowMapSize = previousShadowMapSizeRef.current;
+
+    if (previousShadowMapSize !== null && previousShadowMapSize !== shadowMapSize) {
+      shadow.dispose();
+    }
+    previousShadowMapSizeRef.current = shadowMapSize;
+
+    directional.position.set(lightPositionX, lightPositionY, lightPositionZ);
+    targetObject.position.set(targetX, targetY, targetZ);
+    directional.target = targetObject;
+    targetObject.updateMatrixWorld();
+    directional.target.updateMatrixWorld();
+
+    shadowCamera.near = shadowConfig.near;
+    shadowCamera.far = shadowConfig.far;
+    shadowCamera.left = shadowConfig.left;
+    shadowCamera.right = shadowConfig.right;
+    shadowCamera.top = shadowConfig.top;
+    shadowCamera.bottom = shadowConfig.bottom;
+    shadowCamera.updateProjectionMatrix();
+    shadow.mapSize.set(shadowMapSize, shadowMapSize);
+    shadow.radius = shadowRadius;
+    shadow.bias = shadowBias;
+    shadow.needsUpdate = true;
+  }, [
+    lightPositionX,
+    lightPositionY,
+    lightPositionZ,
+    shadowBias,
+    shadowConfig.bottom,
+    shadowConfig.far,
+    shadowConfig.left,
+    shadowConfig.near,
+    shadowConfig.right,
+    shadowConfig.top,
+    shadowMapSize,
+    shadowRadius,
+    targetX,
+    targetY,
+    targetZ,
+  ]);
 
   return (
     <directionalLight
       ref={lightRef}
       castShadow
-      position={pose.position.toArray()}
+      position={[lightPositionX, lightPositionY, lightPositionZ]}
       intensity={intensity}
-      shadow-camera-near={shadowConfig.near}
-      shadow-camera-far={shadowConfig.far}
-      shadow-camera-left={shadowConfig.left}
-      shadow-camera-right={shadowConfig.right}
-      shadow-camera-top={shadowConfig.top}
-      shadow-camera-bottom={shadowConfig.bottom}
-      shadow-mapSize-width={shadowMapSize}
-      shadow-mapSize-height={shadowMapSize}
-      shadow-bias={shadowBias}
-      shadow-radius={shadowRadius}
     >
       <object3D ref={targetRef} />
     </directionalLight>

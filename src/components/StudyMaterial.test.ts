@@ -33,9 +33,12 @@ void main() {
     });
 
     expect(shader.vertexShader).toContain("varying vec3 vStudyWorldNormal");
-    expect(shader.vertexShader).toContain("vStudyWorldNormal = normalize(mat3(modelMatrix) * objectNormal)");
+    expect(shader.vertexShader).toContain("vStudyWorldNormal = normalize(inverseTransformDirection(transformedNormal, viewMatrix))");
+    expect(shader.vertexShader).not.toContain("mat3(modelMatrix)");
     expect(shader.fragmentShader).toContain("varying vec3 vStudyWorldNormal");
     expect(shader.fragmentShader).toContain("vec3 studyNormal = normalize(vStudyWorldNormal)");
     expect(shader.fragmentShader).not.toContain("vec3 studyNormal = normalize(normal)");
+    expect(shader.fragmentShader).not.toContain("shadowLift");
+    expect(shader.fragmentShader).not.toContain("lightFacing * 0.32");
   });
 });

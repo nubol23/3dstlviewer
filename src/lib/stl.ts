@@ -6,6 +6,7 @@ import {
   type ModelMetadata,
   type ModelOrientation,
   type OrientationAxis,
+  type OrientationTurnOperation,
   DEFAULT_MODEL_ORIENTATION,
 } from "../types";
 import {
@@ -33,9 +34,9 @@ function buildLoadedModel(input: {
   sourceGeometry: BufferGeometry;
   metadata: ModelMetadata;
   orientation?: ModelOrientation;
-  id?: number;
+  id?: string;
 }): LoadedModel {
-  const { sourceGeometry, metadata, orientation = DEFAULT_MODEL_ORIENTATION, id = Date.now() } = input;
+  const { sourceGeometry, metadata, orientation = DEFAULT_MODEL_ORIENTATION, id = crypto.randomUUID() } = input;
   const safeOrientation = normalizeOrientation(orientation);
   const { geometry, fit } = normalizeGeometryForDisplay(sourceGeometry, safeOrientation);
 
@@ -49,6 +50,17 @@ function buildLoadedModel(input: {
   };
 }
 
+function buildLoadedModelFromParsed(input: StlLoadResult & { id?: string }): LoadedModel {
+  return {
+    id: input.id ?? crypto.randomUUID(),
+    sourceGeometry: input.sourceGeometry,
+    geometry: input.geometry,
+    orientation: normalizeOrientation(input.orientation),
+    metadata: input.metadata,
+    fit: input.fit,
+  };
+}
+
 export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
   const { arrayBuffer, fileName, fileSize } = input;
 
@@ -56,13 +68,19 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
     throw new Error("Cannot parse STL: file content is empty");
   }
 
-  if (!Number.isInteger(fileSize) || fileSize < 0) {
-    throw new Error(`Invalid STL metadata: fileSize must be a non-negative integer (${String(fileSize)})`);
+  if (!Number.isInteger(fileSize) || fileSize <= 0) {
+    throw new Error(`Invalid STL metadata: fileSize must be a positive integer (${String(fileSize)})`);
+  }
+
+  if (fileSize !== arrayBuffer.byteLength) {
+    throw new Error(`Invalid STL metadata: fileSize (${fileSize}) does not match content length (${arrayBuffer.byteLength})`);
   }
 
   if (!fileName || fileName.trim().length === 0) {
     throw new Error("Invalid STL metadata: fileName is required");
   }
+
+  assertPlausibleStlBuffer(arrayBuffer, fileName);
 
   let parsedGeometry: BufferGeometry;
   try {
@@ -76,7 +94,7 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
   assertValidGeometry(parsedGeometry);
   recomputeNormals(parsedGeometry);
 
-  const orientation = { ...DEFAULT_MODEL_ORIENTATION };
+  const orientation = cloneOrientation(DEFAULT_MODEL_ORIENTATION);
   const { geometry, fit } = normalizeGeometryForDisplay(parsedGeometry, orientation);
   const triangleCount = getTriangleCountFromGeometry(parsedGeometry);
 
@@ -118,12 +136,7 @@ export async function parseStlFile(file: File): Promise<StlLoadResult> {
 export async function loadStlFile(file: File): Promise<LoadedModel> {
   const modelData = await parseStlFile(file);
 
-  return buildLoadedModel({
-    sourceGeometry: modelData.sourceGeometry,
-    metadata: modelData.metadata,
-    orientation: modelData.orientation,
-    id: Date.now(),
-  });
+  return buildLoadedModelFromParsed(modelData);
 }
 
 function normalizeTurn(turns: number): 0 | 1 | 2 | 3 {
@@ -136,9 +149,16 @@ function normalizeTurn(turns: number): 0 | 1 | 2 | 3 {
 
 function normalizeOrientation(orientation: ModelOrientation): ModelOrientation {
   return {
-    x: normalizeTurn(orientation.x),
-    y: normalizeTurn(orientation.y),
-    z: normalizeTurn(orientation.z),
+    operations: orientation.operations.flatMap((operation) => {
+      const turns = normalizeTurn(operation.quarterTurns);
+      if (turns === 0) {
+        return [];
+      }
+      if (operation.axis !== "x" && operation.axis !== "y" && operation.axis !== "z") {
+        throw new Error(`Invalid orientation axis: ${String(operation.axis)}`);
+      }
+      return [{ axis: operation.axis, quarterTurns: turns as OrientationTurnOperation["quarterTurns"] }];
+    }),
   };
 }
 
@@ -148,14 +168,28 @@ export function rotateOrientation(
   quarterTurns = 1,
 ): ModelOrientation {
   const currentOrientation = normalizeOrientation(orientation);
-  const currentTurns = currentOrientation[axis];
   const deltaTurns = normalizeTurn(quarterTurns);
-  const nextTurns = ((currentTurns + deltaTurns) % 4) as 0 | 1 | 2 | 3;
+  if (axis !== "x" && axis !== "y" && axis !== "z") {
+    throw new Error(`Invalid orientation axis: ${String(axis)}`);
+  }
+  if (deltaTurns === 0) {
+    return currentOrientation;
+  }
 
-  return {
-    ...currentOrientation,
-    [axis]: nextTurns,
-  };
+  const operations = [...currentOrientation.operations];
+  const last = operations[operations.length - 1];
+  if (last?.axis === axis) {
+    const combined = normalizeTurn(last.quarterTurns + deltaTurns);
+    if (combined === 0) {
+      operations.pop();
+    } else {
+      operations[operations.length - 1] = { axis, quarterTurns: combined as OrientationTurnOperation["quarterTurns"] };
+    }
+  } else {
+    operations.push({ axis, quarterTurns: deltaTurns as OrientationTurnOperation["quarterTurns"] });
+  }
+
+  return { operations };
 }
 
 export function rebuildLoadedModel(model: LoadedModel, orientation: ModelOrientation): LoadedModel {
@@ -174,4 +208,50 @@ export function rotateLoadedModel(
 ): LoadedModel {
   const nextOrientation = rotateOrientation(model.orientation, axis, quarterTurns);
   return rebuildLoadedModel(model, nextOrientation);
+}
+
+function cloneOrientation(orientation: ModelOrientation): ModelOrientation {
+  return {
+    operations: orientation.operations.map((operation) => ({ ...operation })),
+  };
+}
+
+function startsWithSolid(arrayBuffer: ArrayBuffer): boolean {
+  const reader = new DataView(arrayBuffer);
+  const solid = [115, 111, 108, 105, 100];
+  for (let offset = 0; offset < 5 && offset + solid.length <= reader.byteLength; offset += 1) {
+    let matches = true;
+    for (let i = 0; i < solid.length; i += 1) {
+      if (reader.getUint8(offset + i) !== solid[i]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function assertPlausibleStlBuffer(arrayBuffer: ArrayBuffer, fileName: string): void {
+  if (arrayBuffer.byteLength < 84) {
+    if (startsWithSolid(arrayBuffer)) {
+      return;
+    }
+    throw new Error(`Invalid STL content for ${fileName}: binary STL is too small`);
+  }
+
+  if (startsWithSolid(arrayBuffer)) {
+    return;
+  }
+
+  const reader = new DataView(arrayBuffer);
+  const faceCount = reader.getUint32(80, true);
+  const expectedBytes = 84 + faceCount * 50;
+  if (expectedBytes !== arrayBuffer.byteLength) {
+    throw new Error(
+      `Invalid STL content for ${fileName}: binary face count expects ${expectedBytes} bytes, got ${arrayBuffer.byteLength}`,
+    );
+  }
 }

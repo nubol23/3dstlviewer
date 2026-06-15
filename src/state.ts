@@ -1,12 +1,13 @@
 import type {
+  ActiveTab,
   AppAction,
   AppState,
   FloorState,
   LightPreset,
   LightState,
   PersistedViewerState,
-  ValueMode,
 } from "./types";
+import { assertValueMode } from "./lib/valueMode";
 
 export const STORAGE_KEY = "stl-value-viewer:v1";
 
@@ -56,6 +57,7 @@ export function createInitialState(): AppState {
     model: null,
     error: null,
     isLoading: false,
+    loadRequestId: 0,
     presets: persisted?.presets?.length ? migrateLegacyDefaultPresets(persisted.presets) : DEFAULT_PRESETS,
   };
 }
@@ -66,7 +68,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (state.light.locked) {
         return state;
       }
-      return { ...state, light: { ...state.light, ...action.patch } };
+      return { ...state, light: assertLightState({ ...state.light, ...action.patch }) };
     case "reset-light":
       if (state.light.locked) {
         return state;
@@ -75,24 +77,35 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "toggle-lock":
       return { ...state, light: { ...state.light, locked: !state.light.locked } };
     case "set-value-mode":
+      assertValueMode(action.valueMode);
       return { ...state, valueMode: action.valueMode };
     case "set-floor":
-      return { ...state, floor: { ...state.floor, ...action.patch } };
+      return { ...state, floor: assertFloorState({ ...state.floor, ...action.patch }) };
     case "set-active-tab":
+      assertActiveTab(action.activeTab);
       return { ...state, activeTab: action.activeTab };
     case "load-start":
-      return { ...state, isLoading: true, error: null };
+      assertLoadRequestId(action.requestId);
+      return { ...state, loadRequestId: action.requestId, isLoading: true, error: null };
     case "load-success":
+      assertLoadRequestId(action.requestId);
+      if (action.requestId !== state.loadRequestId) {
+        return state;
+      }
       return { ...state, isLoading: false, model: action.model, error: null };
     case "replace-model":
       return { ...state, model: action.model, error: null };
     case "load-error":
-      return { ...state, isLoading: false, error: action.message };
+      assertLoadRequestId(action.requestId);
+      if (action.requestId !== state.loadRequestId) {
+        return state;
+      }
+      return { ...state, isLoading: false, error: formatLoadError(action.message, state.model) };
     case "clear-error":
       return { ...state, error: null };
     case "save-preset": {
       const nextPreset: LightPreset = {
-        id: `preset-${Date.now()}`,
+        id: `preset-${crypto.randomUUID()}`,
         name: `Preset ${state.presets.length + 1}`,
         light: { ...state.light, locked: false },
         valueMode: state.valueMode,
@@ -106,7 +119,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       return {
         ...state,
-        light: { ...preset.light, locked: false },
+        light: assertLightState({ ...preset.light, locked: false }),
         valueMode: preset.valueMode,
       };
     }
@@ -115,7 +128,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-export function toPersistedState(state: AppState): PersistedViewerState {
+type PersistableAppState = Pick<AppState, "light" | "valueMode" | "floor" | "presets">;
+
+export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
     version: 1,
     light: state.light,
@@ -125,7 +140,7 @@ export function toPersistedState(state: AppState): PersistedViewerState {
   };
 }
 
-export function writePersistedState(state: AppState): void {
+export function writePersistedState(state: PersistableAppState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersistedState(state)));
 }
 
@@ -135,12 +150,13 @@ export function readPersistedState(): PersistedViewerState | null {
     return null;
   }
 
-  const parsed = JSON.parse(raw) as PersistedViewerState;
-  if (parsed.version !== 1) {
-    throw new Error(`Unsupported persisted viewer state version: ${String(parsed.version)}`);
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return assertPersistedViewerState(parsed);
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    return null;
   }
-  assertValueMode(parsed.valueMode);
-  return parsed;
 }
 
 function migrateLegacyDefaultLight(light: LightState): LightState {
@@ -175,8 +191,132 @@ function matchesLegacyBacklitDefault(light: LightState): boolean {
   );
 }
 
-function assertValueMode(valueMode: ValueMode): void {
-  if (valueMode !== "shaded" && valueMode !== "three-step" && valueMode !== "five-step") {
-    throw new Error(`Unsupported value mode: ${String(valueMode)}`);
+function formatLoadError(message: string, currentModel: AppState["model"]): string {
+  if (!message || message.trim().length === 0) {
+    throw new Error("Invalid load error message: message is required");
   }
+
+  return currentModel ? `${message}. Previous model remains loaded.` : message;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function assertFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Invalid ${label}: ${String(value)}`);
+  }
+  return value;
+}
+
+function assertNumberRange(value: unknown, label: string, min: number, max: number): number {
+  const numberValue = assertFiniteNumber(value, label);
+  if (numberValue < min || numberValue > max) {
+    throw new Error(`Invalid ${label}: ${numberValue} is outside ${min}..${max}`);
+  }
+  return numberValue;
+}
+
+function assertBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`Invalid ${label}: ${String(value)}`);
+  }
+  return value;
+}
+
+function assertString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Invalid ${label}: ${String(value)}`);
+  }
+  return value;
+}
+
+function assertColor(value: unknown): string {
+  const color = assertString(value, "floor color");
+  if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) {
+    throw new Error(`Invalid floor color: ${color}`);
+  }
+  return color;
+}
+
+function assertLoadRequestId(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Invalid load request id: ${String(value)}`);
+  }
+  return value;
+}
+
+function assertActiveTab(value: unknown): asserts value is ActiveTab {
+  if (value !== "light" && value !== "model" && value !== "view") {
+    throw new Error(`Unsupported active tab: ${String(value)}`);
+  }
+}
+
+function assertLightState(value: unknown): LightState {
+  if (!isRecord(value)) {
+    throw new Error("Invalid light state: expected object");
+  }
+
+  return {
+    azimuthDeg: assertNumberRange(value.azimuthDeg, "light azimuth", 0, 360),
+    elevationDeg: assertNumberRange(value.elevationDeg, "light elevation", -78, 78),
+    distance: assertNumberRange(value.distance, "light distance", 1, 6),
+    intensity: assertNumberRange(value.intensity, "light intensity", 0.1, 2.5),
+    bounceStrength: assertNumberRange(value.bounceStrength, "light bounce strength", 0, 0.6),
+    shadowSoftness: assertNumberRange(value.shadowSoftness, "light shadow softness", 0, 1),
+    locked: assertBoolean(value.locked, "light locked"),
+  };
+}
+
+function assertFloorState(value: unknown): FloorState {
+  if (!isRecord(value)) {
+    throw new Error("Invalid floor state: expected object");
+  }
+
+  return {
+    color: assertColor(value.color),
+    roughness: assertNumberRange(value.roughness, "floor roughness", 0.05, 1),
+  };
+}
+
+function assertPreset(value: unknown): LightPreset {
+  if (!isRecord(value)) {
+    throw new Error("Invalid preset: expected object");
+  }
+
+  const valueMode = value.valueMode;
+  assertValueMode(valueMode);
+
+  return {
+    id: assertString(value.id, "preset id"),
+    name: assertString(value.name, "preset name"),
+    light: assertLightState(value.light),
+    valueMode,
+  };
+}
+
+function assertPersistedViewerState(value: unknown): PersistedViewerState {
+  if (!isRecord(value)) {
+    throw new Error("Invalid persisted viewer state: expected object");
+  }
+
+  if (value.version !== 1) {
+    throw new Error(`Unsupported persisted viewer state version: ${String(value.version)}`);
+  }
+
+  const valueMode = value.valueMode;
+  assertValueMode(valueMode);
+
+  if (!Array.isArray(value.presets)) {
+    throw new Error("Invalid persisted viewer state: presets must be an array");
+  }
+
+  return {
+    version: 1,
+    light: assertLightState(value.light),
+    valueMode,
+    floor: assertFloorState(value.floor),
+    presets: value.presets.map(assertPreset),
+  };
 }

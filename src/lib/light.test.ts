@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Vector3 } from "three";
 
 import { LightState } from "../types";
 import {
@@ -47,6 +48,25 @@ describe("light math", () => {
     expect(pose.direction.dot(pose.position.clone().negate())).toBeGreaterThan(0.99);
   });
 
+  it("derives position relative to a non-origin target", () => {
+    const light: LightState = {
+      azimuthDeg: 90,
+      elevationDeg: 0,
+      distance: 2,
+      intensity: 1,
+      bounceStrength: 0.2,
+      shadowSoftness: 0.5,
+      locked: false,
+    };
+    const target = new Vector3(1, 2, 3);
+    const pose = lightPoseFromState(light, target);
+
+    expect(pose.position.x - target.x).toBeCloseTo(2);
+    expect(pose.position.y - target.y).toBeCloseTo(0);
+    expect(pose.position.z - target.z).toBeCloseTo(0);
+    expect(pose.direction.toArray()).toEqual(target.clone().sub(pose.position).normalize().toArray());
+  });
+
   it("produces shadow camera bounds from fit radius and distance", () => {
     const bounds = computeDirectionalShadowConfig({ radius: 1 }, 3);
     expect(bounds.left).toBeLessThan(0);
@@ -57,9 +77,10 @@ describe("light math", () => {
   });
 
   it("maps shadow softness to renderer settings", () => {
-    expect(computeShadowMapSize(0)).toBe(256);
+    expect(computeShadowMapSize(0)).toBe(512);
+    expect(computeShadowMapSize(0.5)).toBe(1024);
     expect(computeShadowMapSize(1)).toBe(2048);
-    expect(computeShadowRadius(0)).toBeCloseTo(0.4);
+    expect(computeShadowRadius(0)).toBeCloseTo(1);
     expect(computeShadowRadius(1)).toBeCloseTo(4.5);
   });
 });
