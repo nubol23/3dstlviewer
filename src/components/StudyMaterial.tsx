@@ -43,6 +43,10 @@ type StudyShaderHost = {
   fragmentShader: string;
 };
 
+type StudyMaterialAttributeFallbackHost = MeshLambertMaterial & {
+  defaultAttributeValues?: Record<string, number[]>;
+};
+
 type StudyMaterialProps = Omit<ComponentProps<"meshLambertMaterial">, "children" | "onBeforeCompile"> & {
   valueMode: ValueMode;
   valueRamp?: ValueRampState;
@@ -55,6 +59,15 @@ type StudyMaterialProps = Omit<ComponentProps<"meshLambertMaterial">, "children"
   floorY?: number;
   floorFalloff?: number;
 };
+
+export function applyStudyBandAttributeFallback(material: MeshLambertMaterial): void {
+  const materialWithFallbacks = material as StudyMaterialAttributeFallbackHost;
+
+  materialWithFallbacks.defaultAttributeValues = {
+    ...materialWithFallbacks.defaultAttributeValues,
+    studyBand: [-1],
+  };
+}
 
 export function injectStudyShader(shader: StudyShaderHost, settings: StudyShaderSettings): void {
   shader.uniforms.uStudySunDirection = { value: settings.lightDirection.clone() };
@@ -75,6 +88,8 @@ export function injectStudyShader(shader: StudyShaderHost, settings: StudyShader
     "#include <common>",
     `
 #include <common>
+attribute float studyBand;
+varying float vStudyBand;
 varying vec3 vStudyWorldPosition;
 varying vec3 vStudyWorldNormal;
 `,
@@ -83,6 +98,7 @@ varying vec3 vStudyWorldNormal;
     "#include <normal_vertex>",
     `
 #include <normal_vertex>
+vStudyBand = studyBand;
 vStudyWorldNormal = normalize(inverseTransformDirection(transformedNormal, viewMatrix));
 `,
   );
@@ -98,6 +114,7 @@ vStudyWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
     "#include <common>",
     `
 #include <common>
+varying float vStudyBand;
 varying vec3 vStudyWorldPosition;
 varying vec3 vStudyWorldNormal;
 uniform vec3 uStudySunDirection;
@@ -190,6 +207,18 @@ int computeStudyBand(float studyValue) {
   int studyBand = int(floor(studyValue * float(uStudyModeSteps)));
   return clamp(studyBand, 0, uStudyModeSteps - 1);
 }
+
+int cleanVertexStudyBand(float vertexStudyBand) {
+  return clamp(int(floor(vertexStudyBand + 0.5)), 0, uStudyModeSteps - 1);
+}
+
+int resolveStudyBand(float studyValue) {
+  if (vStudyBand >= 0.0) {
+    return cleanVertexStudyBand(vStudyBand);
+  }
+
+  return computeStudyBand(clamp(studyValue + uStudyBandBias, 0.0, 1.0));
+}
 `,
   );
 
@@ -203,14 +232,14 @@ vec3 studyNormal = normalize(vStudyWorldNormal);
 if (uStudyZenithal) {
   float studyValue = computeZenithalStudyValue(studyNormal, vStudyWorldPosition);
   if (uStudyModeSteps > 1) {
-    int studyBand = computeStudyBand(clamp(studyValue + uStudyBandBias, 0.0, 1.0));
+    int studyBand = resolveStudyBand(studyValue);
     outgoingLight = getStudyRampColor(studyBand);
   } else {
     outgoingLight = vec3(studyValue);
   }
 } else if (uStudyModeSteps > 1) {
   float studyValue = computeDirectionalStudyValue(studyNormal, vStudyWorldPosition);
-  int studyBand = computeStudyBand(clamp(studyValue + uStudyBandBias, 0.0, 1.0));
+  int studyBand = resolveStudyBand(studyValue);
   outgoingLight = getStudyRampColor(studyBand);
 }
 `,
@@ -346,6 +375,8 @@ export function StudyMaterial({
       ref={materialRef}
       {...materialProps}
       onBeforeCompile={(shader: any): void => {
+        applyStudyBandAttributeFallback(materialRef.current!);
+
         injectStudyShader(shader, {
           lightDirection: lightDirectionNormalized,
           bounceStrength: derivedStrength,

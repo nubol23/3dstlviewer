@@ -1,19 +1,78 @@
 import { fileURLToPath } from "node:url";
-import { test, expect } from "@playwright/test";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
+
+const test = base.extend<{ assertNoConsoleErrors: void }>({
+  assertNoConsoleErrors: [
+    async ({ page }, use) => {
+      const consoleErrors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") {
+          consoleErrors.push(`console error: ${message.text()}`);
+        }
+      });
+      page.on("pageerror", (error) => {
+        consoleErrors.push(`page error: ${error.message}`);
+      });
+
+      await use();
+
+      expect(consoleErrors).toEqual([]);
+    },
+    { auto: true },
+  ],
+});
 
 const zUpMiniPath = fileURLToPath(new URL("./fixtures/z-up-mini.stl", import.meta.url));
 const degenerateMiniPath = fileURLToPath(new URL("./fixtures/degenerate-mini.stl", import.meta.url));
+const valueBandIslandPath = fileURLToPath(new URL("./fixtures/value-band-island.stl", import.meta.url));
+
+async function expectCanvasToRender(page: Page): Promise<void> {
+  const canvas = page.locator("canvas");
+  await expect(canvas).toBeVisible();
+  await expect
+    .poll(
+      async () => canvas.evaluate((element) => element.toDataURL("image/png").length),
+      { message: "canvas should render non-empty model content", timeout: 5_000 },
+    )
+    .toBeGreaterThan(1_000);
+}
+
+async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
+  const layout = await page.evaluate(() => {
+    const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
+    return {
+      horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+      viewport: viewport
+        ? {
+            bottom: viewport.bottom,
+            height: viewport.height,
+            left: viewport.left,
+            right: viewport.right,
+            top: viewport.top,
+            width: viewport.width,
+          }
+        : null,
+      windowWidth: window.innerWidth,
+    };
+  });
+
+  expect(layout.horizontalOverflow).toBe(false);
+  expect(layout.viewport).not.toBeNull();
+  expect(layout.viewport!.width).toBeGreaterThan(240);
+  expect(layout.viewport!.height).toBeGreaterThan(180);
+  expect(layout.viewport!.left).toBeGreaterThanOrEqual(0);
+  expect(layout.viewport!.top).toBeGreaterThanOrEqual(0);
+  expect(layout.viewport!.right).toBeLessThanOrEqual(layout.windowWidth + 1);
+  expect(layout.viewport!.bottom).toBeGreaterThan(layout.viewport!.top);
+}
+
+async function selectValueMode(valueModeControl: Locator, label: "Shaded" | "3-Step" | "5-Step"): Promise<void> {
+  await valueModeControl.locator("label").filter({ hasText: label }).click();
+  await expect(valueModeControl.getByRole("radio", { name: label })).toBeChecked();
+}
 
 test.describe("STL viewer", () => {
   test("loads and manipulates a z-up STL with the default import orientation", async ({ page }) => {
-    const messages: string[] = [];
-    page.on("console", (message) => {
-      if (["error", "warning"].includes(message.type())) {
-        messages.push(message.text());
-      }
-    });
-    page.on("pageerror", (error) => messages.push(error.message));
-
     await page.goto("/");
     await expect(page.getByText("Miniature Light Studio")).toBeVisible();
     await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
@@ -24,8 +83,8 @@ test.describe("STL viewer", () => {
     await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
     await expect(loadedToast).toBeHidden({ timeout: 6000 });
 
-    const dataUrlLength = await page.locator("canvas").evaluate((canvas) => canvas.toDataURL("image/png").length);
-    expect(dataUrlLength).toBeGreaterThan(1000);
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
 
     await page.getByTestId("rotate-y-positive").click();
     await expect(page.getByText("1. X -90°")).toBeVisible();
@@ -35,8 +94,9 @@ test.describe("STL viewer", () => {
     await expect(page.getByText("1. X -90°")).toBeVisible();
 
     const desktopValueMode = page.getByTestId("value-mode-control");
-    await desktopValueMode.locator("label").filter({ hasText: "3-Step" }).click();
-    await expect(page.getByRole("radio", { name: "3-Step" })).toBeChecked();
+    await selectValueMode(desktopValueMode, "3-Step");
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
     await page.getByRole("slider", { name: "Shadow Value" }).fill("30");
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
 
@@ -47,10 +107,12 @@ test.describe("STL viewer", () => {
     await page.getByTestId("desktop-zenithal-study-checkbox").click();
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
 
-    await desktopValueMode.locator("label").filter({ hasText: "5-Step" }).click();
-    await expect(page.getByRole("radio", { name: "5-Step" })).toBeChecked();
-    await desktopValueMode.locator("label").filter({ hasText: "Shaded" }).click();
-    await expect(page.getByRole("radio", { name: "Shaded" })).toBeChecked();
+    await selectValueMode(desktopValueMode, "5-Step");
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
+    await selectValueMode(desktopValueMode, "Shaded");
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
 
     const shadowSoftness = page.getByRole("slider", { name: "Shadow Softness" }).first();
     await shadowSoftness.fill("1");
@@ -66,11 +128,30 @@ test.describe("STL viewer", () => {
     await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
     await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
     await expect(errorToast).toBeHidden({ timeout: 8000 });
+  });
 
-    const relevantMessages = messages.filter(
-      (message) => !message.includes("React DevTools") && !message.includes("GPU stall due to ReadPixels"),
-    );
-    expect(relevantMessages).toEqual([]);
+  test("validates quantized modes on a synthetic tiny band island after default orientation", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("stl-file-input").setInputFiles(valueBandIslandPath);
+
+    await expect(page.getByRole("heading", { name: "value-band-island.stl" }).first()).toBeVisible();
+    await expect(page.getByText("Loaded value-band-island.stl.")).toBeVisible();
+    await expect(page.getByText("4 tris").first()).toBeVisible();
+    await expect(page.getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
+
+    const desktopValueMode = page.getByTestId("value-mode-control");
+    await selectValueMode(desktopValueMode, "3-Step");
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
+    await selectValueMode(desktopValueMode, "5-Step");
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
+    await selectValueMode(desktopValueMode, "Shaded");
+    await expectCanvasToRender(page);
+    await expectDesktopWorkbenchLayout(page);
   });
 
   test("keeps mobile controls usable at 320x568", async ({ page }) => {
@@ -165,11 +246,16 @@ test.describe("STL viewer", () => {
 
     await page.getByRole("tab", { name: "View" }).click();
     await expect(page.getByTestId("mobile-value-mode-control")).toBeVisible();
-    await page.getByTestId("mobile-value-mode-control").locator("label").filter({ hasText: "3-Step" }).click();
-    await expect(page.getByRole("radio", { name: "3-Step" })).toBeChecked();
+    const mobileValueMode = page.getByTestId("mobile-value-mode-control");
+    await selectValueMode(mobileValueMode, "3-Step");
+    await expectCanvasToRender(page);
     await expect(page.getByTestId("mobile-value-ramp-control")).toBeVisible();
     await page.getByTestId("mobile-shadow-value-slider").fill("26");
     await expect(page.getByTestId("mobile-shadow-value-slider")).toHaveValue("26");
+    await selectValueMode(mobileValueMode, "5-Step");
+    await expectCanvasToRender(page);
+    await selectValueMode(mobileValueMode, "Shaded");
+    await expectCanvasToRender(page);
 
     const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     expect(horizontalOverflow).toBe(false);

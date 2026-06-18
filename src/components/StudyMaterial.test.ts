@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Color, Vector3 } from "three";
+import { Color, MeshLambertMaterial, Vector3 } from "three";
 
-import { injectStudyShader } from "./StudyMaterial";
+import { applyStudyBandAttributeFallback, injectStudyShader } from "./StudyMaterial";
 
 function createShader() {
   return {
@@ -48,15 +48,22 @@ describe("StudyMaterial shader injection", () => {
     });
 
     expect(shader.vertexShader).toContain("varying vec3 vStudyWorldNormal");
+    expect(shader.vertexShader).toContain("attribute float studyBand");
+    expect(shader.vertexShader).toContain("varying float vStudyBand");
+    expect(shader.vertexShader).toContain("vStudyBand = studyBand");
     expect(shader.vertexShader).toContain("vStudyWorldNormal = normalize(inverseTransformDirection(transformedNormal, viewMatrix))");
     expect(shader.vertexShader).not.toContain("mat3(modelMatrix)");
+    expect(shader.fragmentShader).toContain("varying float vStudyBand");
     expect(shader.fragmentShader).toContain("varying vec3 vStudyWorldNormal");
     expect(shader.fragmentShader).toContain("vec3 studyNormal = normalize(vStudyWorldNormal)");
     expect(shader.fragmentShader).toContain("#include <shadowmask_pars_fragment>");
     expect(shader.fragmentShader).toContain("float shadow = getShadowMask()");
     expect(shader.fragmentShader).toContain("float direct = clamp(dot(studyNormal, -uStudySunDirection), 0.0, 1.0)");
     expect(shader.fragmentShader).toContain("vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;");
+    expect(shader.fragmentShader).toContain("if (vStudyBand >= 0.0)");
+    expect(shader.fragmentShader).toContain("return cleanVertexStudyBand(vStudyBand)");
     expect(shader.fragmentShader).toContain("if (uStudyModeSteps > 1)");
+    expect(shader.fragmentShader).toContain("int studyBand = resolveStudyBand(studyValue)");
     expect(shader.fragmentShader).toContain("outgoingLight = getStudyRampColor(studyBand)");
     expect(shader.fragmentShader).not.toContain("vec3 studyNormal = normalize(normal)");
     expect(shader.fragmentShader).not.toContain("studyLuma");
@@ -98,7 +105,16 @@ describe("StudyMaterial shader injection", () => {
     expect(zenithalValue).not.toContain("getShadowMask");
     expect(mainBranch).toContain("float studyValue = computeZenithalStudyValue(studyNormal, vStudyWorldPosition)");
     expect(mainBranch).toContain("outgoingLight = vec3(studyValue)");
+    expect(mainBranch).toContain("int studyBand = resolveStudyBand(studyValue)");
     expect(mainBranch).toContain("outgoingLight = getStudyRampColor(studyBand)");
     expect(shader.fragmentShader).not.toContain("gl_FragCoord");
+  });
+
+  it("keeps the computed study path when geometry does not provide a studyBand attribute", () => {
+    const material = new MeshLambertMaterial();
+
+    applyStudyBandAttributeFallback(material);
+
+    expect(material).toHaveProperty("defaultAttributeValues.studyBand", [-1]);
   });
 });
