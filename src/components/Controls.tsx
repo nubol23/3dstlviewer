@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useId } from "react";
+import * as RadioGroup from "@radix-ui/react-radio-group";
+import * as Slider from "@radix-ui/react-slider";
 import type { ValueMode } from "../types";
 
 type RangeControlProps = {
@@ -35,6 +37,14 @@ export function RangeControl({
   const display = formatValue ? formatValue(value) : `${value.toFixed(suffix === "m" ? 1 : 2)}${suffix ?? ""}`;
   const fillPercent = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
   const inputStyle = { "--range-fill": `${fillPercent}%` } as CSSProperties;
+  const handleSliderChange = (nextValue: number[]) => {
+    const [next] = nextValue;
+    if (next === undefined) {
+      throw new Error(`Invalid range control "${label}": slider emitted no value`);
+    }
+
+    onChange(next);
+  };
 
   return (
     <div className="slider-block">
@@ -42,19 +52,34 @@ export function RangeControl({
         <span>{label}</span>
         <span>{display}</span>
       </label>
-      <input
-        id={inputId}
+      <Slider.Root
         className="slider-block__input"
-        type="range"
-        data-testid={testId}
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={[value]}
         style={inputStyle}
-        onChange={(event) => onChange(Number(event.target.value))}
         disabled={disabled}
-      />
+        onValueChange={handleSliderChange}
+      >
+        <Slider.Track className="slider-block__track">
+          <Slider.Range className="slider-block__range" />
+        </Slider.Track>
+        <span aria-hidden="true" className="slider-block__thumb" />
+        <input
+          id={inputId}
+          className="slider-block__native-input"
+          type="range"
+          data-testid={testId}
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          style={inputStyle}
+          onChange={(event) => onChange(Number(event.target.value))}
+          disabled={disabled}
+        />
+      </Slider.Root>
       <span className="slider-block__ticks">
         <span>{min}</span>
         <span>{max}</span>
@@ -92,31 +117,39 @@ export function SegmentedControl({
   const radioIdPrefix = idPrefix ?? `value-mode-option-${generatedName}`;
 
   return (
-    <div className="segmented" role="radiogroup" aria-label="Value mode" data-testid={testId}>
+    <RadioGroup.Root
+      className="segmented"
+      aria-label="Value mode"
+      data-testid={testId}
+      disabled={disabled}
+      name={radioName}
+      orientation="horizontal"
+      value={value}
+      onValueChange={(nextValue) => onChange(nextValue as ValueMode)}
+    >
       {options.map((option) => {
         const active = option.value === value;
         const optionId = `${radioIdPrefix}-${option.value}`;
         return (
           <label
-            className={`segment-btn${active ? " is-active" : ""}`}
+            aria-disabled={disabled || undefined}
+            className={`segment-btn${active ? " is-active" : ""}${disabled ? " is-disabled" : ""}`}
             htmlFor={optionId}
             key={option.value}
           >
-            <input
+            <RadioGroup.Item
               id={optionId}
-              className="visually-hidden"
-              type="radio"
-              name={radioName}
+              aria-label={option.label}
+              className="segment-btn__item"
               value={option.value}
-              checked={active}
               disabled={disabled}
-              onChange={() => onChange(option.value)}
-            />
-            {option.label}
+            >
+              {option.label}
+            </RadioGroup.Item>
           </label>
         );
       })}
-    </div>
+    </RadioGroup.Root>
   );
 }
 

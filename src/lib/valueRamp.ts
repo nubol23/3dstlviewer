@@ -1,4 +1,5 @@
 import chroma from "chroma-js";
+import { z } from "zod";
 
 import type { ValueRampState } from "../types";
 
@@ -12,60 +13,70 @@ export const VALUE_RAMP_MIN_CONTRAST = 20;
 
 type RampStepCount = 3 | 5;
 
-function assertFiniteNumber(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`Invalid ${label}: ${String(value)}`);
+function parseSchema<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? "Invalid value ramp state");
   }
-  return value;
+
+  return result.data;
 }
 
-function assertNumberRange(value: unknown, label: string, min: number, max: number): number {
-  const numberValue = assertFiniteNumber(value, label);
-  if (numberValue < min || numberValue > max) {
-    throw new Error(`Invalid ${label}: ${numberValue} is outside ${min}..${max}`);
-  }
-  return numberValue;
+function finiteNumberSchema(label: string): z.ZodNumber {
+  return z.number({
+    error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
+  });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function numberRangeSchema(label: string, min: number, max: number) {
+  return finiteNumberSchema(label).superRefine((value, context) => {
+    if (value < min || value > max) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid ${label}: ${value} is outside ${min}..${max}`,
+      });
+    }
+  });
 }
 
-function assertRampStepCount(stepCount: unknown): RampStepCount {
-  if (stepCount !== 3 && stepCount !== 5) {
-    throw new Error(`Unsupported value ramp step count: ${String(stepCount)}`);
-  }
-  return stepCount;
-}
+const VALUE_RAMP_INPUT_SCHEMA = z
+  .object(
+    {
+      shadowLightness: finiteNumberSchema("value ramp shadow lightness"),
+      highlightLightness: finiteNumberSchema("value ramp highlight lightness"),
+      bandBias: finiteNumberSchema("value ramp band bias"),
+    },
+    { error: "Invalid value ramp state: expected object" },
+  )
+  .superRefine((value, context) => {
+    if (value.highlightLightness - value.shadowLightness < VALUE_RAMP_MIN_CONTRAST) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid value ramp contrast: highlight and shadow values must differ by at least ${VALUE_RAMP_MIN_CONTRAST}`,
+      });
+    }
+  });
+
+const VALUE_RAMP_STATE_SCHEMA: z.ZodType<ValueRampState> = VALUE_RAMP_INPUT_SCHEMA.pipe(
+  z.object({
+    shadowLightness: numberRangeSchema("value ramp shadow lightness", 5, 40),
+    highlightLightness: numberRangeSchema("value ramp highlight lightness", 60, 98),
+    bandBias: numberRangeSchema("value ramp band bias", -0.25, 0.25),
+  }),
+);
+
+const RAMP_STEP_COUNT_SCHEMA = z.literal([3, 5], {
+  error: (issue) => `Unsupported value ramp step count: ${String(issue.input)}`,
+});
 
 export function assertValueRampState(value: unknown): ValueRampState {
-  if (!isRecord(value)) {
-    throw new Error("Invalid value ramp state: expected object");
-  }
-
-  const shadowInput = assertFiniteNumber(value.shadowLightness, "value ramp shadow lightness");
-  const highlightInput = assertFiniteNumber(value.highlightLightness, "value ramp highlight lightness");
-
-  if (highlightInput - shadowInput < VALUE_RAMP_MIN_CONTRAST) {
-    throw new Error(
-      `Invalid value ramp contrast: highlight and shadow values must differ by at least ${VALUE_RAMP_MIN_CONTRAST}`,
-    );
-  }
-
-  const shadowLightness = assertNumberRange(shadowInput, "value ramp shadow lightness", 5, 40);
-  const highlightLightness = assertNumberRange(highlightInput, "value ramp highlight lightness", 60, 98);
-  const bandBias = assertNumberRange(value.bandBias, "value ramp band bias", -0.25, 0.25);
-
-  return {
-    shadowLightness,
-    highlightLightness,
-    bandBias,
-  };
+  return parseSchema(VALUE_RAMP_STATE_SCHEMA, value);
 }
 
 export function createValueRampColors(valueRamp: ValueRampState, stepCount: RampStepCount): string[] {
   const ramp = assertValueRampState(valueRamp);
-  const steps = assertRampStepCount(stepCount);
+  const steps = parseSchema(RAMP_STEP_COUNT_SCHEMA, stepCount);
   const colors = chroma
     .scale([
       chroma.lch(ramp.shadowLightness, 0, 0),

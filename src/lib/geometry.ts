@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Vector3,
+  type TypedArray,
 } from "three";
 import {
   DEFAULT_MODEL_ORIENTATION,
@@ -238,6 +239,185 @@ function ensureFiniteExtentsAndNonDegenerateTriangles(geometry: BufferGeometry, 
       throw new GeometryValidationError(`Invalid STL geometry: triangle ${triangle} has zero or near-zero area`);
     }
   }
+}
+
+type TypedArrayConstructor = {
+  new (length: number): TypedArray;
+};
+
+function createTypedArrayLike(source: TypedArray, length: number): TypedArray {
+  const Constructor = source.constructor as TypedArrayConstructor;
+  return new Constructor(length);
+}
+
+function getNonIndexedTriangleArea(
+  position: BufferAttribute,
+  vertexOffset: number,
+  a: Vector3,
+  b: Vector3,
+  c: Vector3,
+  ab: Vector3,
+  ac: Vector3,
+): number {
+  a.fromBufferAttribute(position, vertexOffset);
+  b.fromBufferAttribute(position, vertexOffset + 1);
+  c.fromBufferAttribute(position, vertexOffset + 2);
+  ab.subVectors(b, a);
+  ac.subVectors(c, a);
+  return ab.cross(ac).length() / 2;
+}
+
+function createFilteredVertexAttribute(
+  attributeName: string,
+  attribute: BufferAttribute,
+  sourceVertexCount: number,
+  retainedTriangleVertexOffsets: number[],
+): BufferAttribute {
+  if (attribute.count !== sourceVertexCount) {
+    throw new GeometryValidationError(
+      `Invalid STL geometry: ${attributeName} attribute count (${attribute.count}) does not match position count (${sourceVertexCount})`,
+    );
+  }
+
+  const itemSize = attribute.itemSize;
+  const sourceArray = attribute.array as TypedArray;
+  const targetArray = createTypedArrayLike(sourceArray, retainedTriangleVertexOffsets.length * 3 * itemSize);
+  let targetOffset = 0;
+
+  retainedTriangleVertexOffsets.forEach((vertexOffset) => {
+    const sourceOffset = vertexOffset * itemSize;
+    const sourceEnd = sourceOffset + 3 * itemSize;
+    targetArray.set(sourceArray.subarray(sourceOffset, sourceEnd), targetOffset);
+    targetOffset += 3 * itemSize;
+  });
+
+  const filteredAttribute = new BufferAttribute(targetArray, itemSize, attribute.normalized);
+  filteredAttribute.name = attribute.name;
+  filteredAttribute.setUsage(attribute.usage);
+
+  return filteredAttribute;
+}
+
+function findGroupForTriangleVertexOffset(
+  sortedGroups: BufferGeometry["groups"],
+  triangleVertexOffset: number,
+): BufferGeometry["groups"][number] {
+  const group = sortedGroups.find((candidate) => {
+    return triangleVertexOffset >= candidate.start && triangleVertexOffset + 3 <= candidate.start + candidate.count;
+  });
+
+  if (!group) {
+    throw new GeometryValidationError(
+      `Invalid STL geometry: group coverage missing for triangle starting at vertex ${triangleVertexOffset}`,
+    );
+  }
+
+  return group;
+}
+
+function copyFilteredGroups(
+  sourceGeometry: BufferGeometry,
+  targetGeometry: BufferGeometry,
+  retainedTriangleVertexOffsets: number[],
+): void {
+  if (sourceGeometry.groups.length === 0) {
+    return;
+  }
+
+  const sortedGroups = [...sourceGeometry.groups].sort((a, b) => a.start - b.start);
+  retainedTriangleVertexOffsets.forEach((triangleVertexOffset, retainedTriangleIndex) => {
+    const sourceGroup = findGroupForTriangleVertexOffset(sortedGroups, triangleVertexOffset);
+    const materialIndex = sourceGroup.materialIndex ?? 0;
+    const targetStart = retainedTriangleIndex * 3;
+    const previousGroup = targetGeometry.groups[targetGeometry.groups.length - 1];
+
+    if (previousGroup && previousGroup.materialIndex === materialIndex && previousGroup.start + previousGroup.count === targetStart) {
+      previousGroup.count += 3;
+      return;
+    }
+
+    targetGeometry.addGroup(targetStart, 3, materialIndex);
+  });
+}
+
+function copyStlMetadata(sourceGeometry: BufferGeometry, targetGeometry: BufferGeometry): void {
+  targetGeometry.name = sourceGeometry.name;
+  targetGeometry.userData = sourceGeometry.userData;
+
+  const sourceStlMetadata = sourceGeometry as BufferGeometry & { hasColors?: boolean; alpha?: number };
+  const targetStlMetadata = targetGeometry as BufferGeometry & { hasColors?: boolean; alpha?: number };
+
+  if (sourceStlMetadata.hasColors !== undefined) {
+    targetStlMetadata.hasColors = sourceStlMetadata.hasColors;
+  }
+  if (sourceStlMetadata.alpha !== undefined) {
+    targetStlMetadata.alpha = sourceStlMetadata.alpha;
+  }
+}
+
+export function sanitizeStlGeometry(geometry: BufferGeometry): BufferGeometry {
+  if (!geometry || !("isBufferGeometry" in geometry)) {
+    throw new GeometryValidationError("Invalid STL geometry: parsed geometry is missing");
+  }
+
+  if (geometry.index) {
+    throw new GeometryValidationError("Invalid STL geometry: expected non-indexed STL geometry");
+  }
+
+  const position = getPositionAttribute(geometry);
+  if (position.itemSize !== 3) {
+    throw new GeometryValidationError("Invalid STL geometry: position attribute must have 3 components per vertex");
+  }
+  if (position.count % 3 !== 0) {
+    throw new GeometryValidationError(
+      `Invalid STL geometry: position count (${position.count}) is not divisible by 3`,
+    );
+  }
+
+  ensureValidGroups(geometry, position.count);
+
+  const triangleCount = position.count / 3;
+  const retainedTriangleVertexOffsets: number[] = [];
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  const ab = new Vector3();
+  const ac = new Vector3();
+
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const vertexOffset = triangle * 3;
+    const area = getNonIndexedTriangleArea(position, vertexOffset, a, b, c, ab, ac);
+    if (Number.isFinite(area) && area <= MIN_TRIANGLE_AREA) {
+      continue;
+    }
+
+    retainedTriangleVertexOffsets.push(vertexOffset);
+  }
+
+  if (retainedTriangleVertexOffsets.length === 0) {
+    throw new GeometryValidationError("Invalid STL geometry: no usable triangles remain after sanitation");
+  }
+
+  if (retainedTriangleVertexOffsets.length === triangleCount) {
+    return geometry;
+  }
+
+  const sanitizedGeometry = new BufferGeometry();
+  copyStlMetadata(geometry, sanitizedGeometry);
+
+  Object.entries(geometry.attributes).forEach(([attributeName, attribute]) => {
+    if (!(attribute instanceof BufferAttribute)) {
+      throw new GeometryValidationError(`Invalid STL geometry: ${attributeName} attribute is unsupported`);
+    }
+
+    sanitizedGeometry.setAttribute(
+      attributeName,
+      createFilteredVertexAttribute(attributeName, attribute, position.count, retainedTriangleVertexOffsets),
+    );
+  });
+  copyFilteredGroups(geometry, sanitizedGeometry, retainedTriangleVertexOffsets);
+
+  return sanitizedGeometry;
 }
 
 export function assertValidGeometry(geometry: BufferGeometry): void {

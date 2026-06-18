@@ -11,6 +11,10 @@ type StlModelProps = {
   zenithalStudy: boolean;
 };
 
+export function shouldCastPhysicalShadow(zenithalStudy: boolean): boolean {
+  return !zenithalStudy;
+}
+
 export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: StlModelProps) {
   const previousGeometryRef = useRef<BufferGeometry | null>(null);
 
@@ -31,7 +35,7 @@ export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: 
     <mesh
       key={model.id}
       geometry={model.geometry}
-      castShadow
+      castShadow={shouldCastPhysicalShadow(zenithalStudy)}
       receiveShadow
       data-testid="stl-model"
       userData={{

@@ -14,6 +14,7 @@ import {
   recomputeNormals,
   assertValidGeometry,
   getTriangleCountFromGeometry,
+  sanitizeStlGeometry,
 } from "./geometry";
 import { createUuid } from "./uuid";
 
@@ -92,6 +93,7 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
     );
   }
 
+  parsedGeometry = sanitizeStlGeometry(parsedGeometry);
   assertValidGeometry(parsedGeometry);
   recomputeNormals(parsedGeometry);
 

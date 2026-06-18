@@ -4,24 +4,12 @@ import { getTriangleCountFromGeometry, normalizeGeometryForDisplay, assertValidG
 import { BufferAttribute, BufferGeometry } from "three";
 import { DEFAULT_MODEL_ORIENTATION, type LoadedModel } from "../types";
 
-function createTinyAsciiStl(triangleCount = 1): ArrayBuffer {
-  const triangles: Array<{
-    normal: [number, number, number];
-    vertices: Array<[number, number, number]>;
-  }> = [];
+type StlTriangle = {
+  normal: [number, number, number];
+  vertices: Array<[number, number, number]>;
+};
 
-  for (let i = 0; i < triangleCount; i += 1) {
-    const offset = i % 2 === 0 ? 0 : 1;
-    triangles.push({
-      normal: [0, 0, 1],
-      vertices: [
-        [offset, 0, 0],
-        [1 + offset, 0, 0],
-        [offset, 1, 0],
-      ],
-    });
-  }
-
+function createAsciiStlFromTriangles(triangles: StlTriangle[]): ArrayBuffer {
   const lines = ["solid tiny-stl"];
   triangles.forEach((triangle) => {
     lines.push(`facet normal ${triangle.normal.join(" ")}`);
@@ -36,6 +24,46 @@ function createTinyAsciiStl(triangleCount = 1): ArrayBuffer {
 
   const utf8 = new TextEncoder().encode(lines.join("\n"));
   return utf8.buffer;
+}
+
+function createTinyAsciiStl(triangleCount = 1): ArrayBuffer {
+  const triangles: StlTriangle[] = [];
+
+  for (let i = 0; i < triangleCount; i += 1) {
+    const offset = i % 2 === 0 ? 0 : 1;
+    triangles.push({
+      normal: [0, 0, 1],
+      vertices: [
+        [offset, 0, 0],
+        [1 + offset, 0, 0],
+        [offset, 1, 0],
+      ],
+    });
+  }
+
+  return createAsciiStlFromTriangles(triangles);
+}
+
+function createBinaryStlFromTriangles(triangles: StlTriangle[]): ArrayBuffer {
+  const buffer = new ArrayBuffer(84 + triangles.length * 50);
+  const view = new DataView(buffer);
+  view.setUint32(80, triangles.length, true);
+
+  triangles.forEach((triangle, triangleIndex) => {
+    const triangleOffset = 84 + triangleIndex * 50;
+    triangle.normal.forEach((value, componentIndex) => {
+      view.setFloat32(triangleOffset + componentIndex * 4, value, true);
+    });
+    triangle.vertices.forEach((vertex, vertexIndex) => {
+      const vertexOffset = triangleOffset + 12 + vertexIndex * 12;
+      vertex.forEach((value, componentIndex) => {
+        view.setFloat32(vertexOffset + componentIndex * 4, value, true);
+      });
+    });
+    view.setUint16(triangleOffset + 48, 0, true);
+  });
+
+  return buffer;
 }
 
 function createOffsetGeometry(): BufferGeometry {
@@ -151,7 +179,8 @@ describe("STL loading and parsing", () => {
     expect(result.metadata.fileName).toBe("triangle.stl");
     expect(result.metadata.fileSize).toBe(arrayBuffer.byteLength);
     expect(result.fit.size.x).toBeCloseTo(4);
-    expect(result.fit.size.y).toBeCloseTo(4);
+    expect(result.fit.size.y).toBeCloseTo(0);
+    expect(result.fit.size.z).toBeCloseTo(4);
 
     const bounds = computePositionBounds(result.geometry);
     expect(bounds.minY).toBeCloseTo(0);
@@ -175,7 +204,7 @@ describe("STL loading and parsing", () => {
         fileName: "empty.stl",
         fileSize: 84,
       }),
-    ).toThrow(/missing or empty position attribute|contains no triangles/);
+    ).toThrow(/no usable triangles remain/);
   });
 
   it("throws for invalid raw buffer input", () => {
@@ -213,11 +242,104 @@ describe("STL loading and parsing", () => {
     const bounds = computePositionBounds(result.geometry);
     const spanX = bounds.maxX - bounds.minX;
     const spanY = bounds.maxY - bounds.minY;
-    expect(Math.max(spanX, spanY)).toBeCloseTo(4);
-    expect(bounds.maxZ - bounds.minZ).toBeCloseTo(0);
+    const spanZ = bounds.maxZ - bounds.minZ;
+    expect(Math.max(spanX, spanY, spanZ)).toBeCloseTo(4);
+    expect(spanY).toBeCloseTo(0);
+    expect(spanZ).toBeGreaterThan(0);
 
     expect(result.fit.scale).toBeGreaterThan(0);
   });
+
+  it("drops finite degenerate triangles from mixed STL before validation and normals", () => {
+    const arrayBuffer = createAsciiStlFromTriangles([
+      {
+        normal: [0, 0, 1],
+        vertices: [
+          [0, 0, 0],
+          [1, 0, 0],
+          [2, 0, 0],
+        ],
+      },
+      {
+        normal: [0, 0, 1],
+        vertices: [
+          [0, 0, 0],
+          [1, 0, 0],
+          [0, 1, 0],
+        ],
+      },
+      {
+        normal: [0, 0, 1],
+        vertices: [
+          [0, 0, 0],
+          [0, 0, 0],
+          [0, 0, 0],
+        ],
+      },
+    ]);
+
+    const result = parseStlArrayBuffer({
+      arrayBuffer,
+      fileName: "mixed-degenerate.stl",
+      fileSize: arrayBuffer.byteLength,
+    });
+
+    expect(result.metadata.triangleCount).toBe(1);
+    expect(getTriangleCountFromGeometry(result.sourceGeometry)).toBe(1);
+    expect(result.sourceGeometry.getAttribute("position").count).toBe(3);
+    expect(result.sourceGeometry.getAttribute("normal").array.some((value) => value !== 0)).toBe(true);
+  });
+
+  it("fails when sanitation leaves no usable triangles", () => {
+    const arrayBuffer = createAsciiStlFromTriangles([
+      {
+        normal: [0, 0, 1],
+        vertices: [
+          [0, 0, 0],
+          [1, 0, 0],
+          [2, 0, 0],
+        ],
+      },
+      {
+        normal: [0, 0, 1],
+        vertices: [
+          [0, 0, 0],
+          [0, 0, 0],
+          [0, 0, 0],
+        ],
+      },
+    ]);
+
+    expect(() =>
+      parseStlArrayBuffer({
+        arrayBuffer,
+        fileName: "all-degenerate.stl",
+        fileSize: arrayBuffer.byteLength,
+      }),
+    ).toThrow(/no usable triangles remain/);
+  });
+
+  it("keeps non-finite geometry as a hard validation error", () => {
+    const arrayBuffer = createBinaryStlFromTriangles([
+      {
+        normal: [0, 0, 1],
+        vertices: [
+          [Infinity, 0, 0],
+          [1, 0, 0],
+          [0, 1, 0],
+        ],
+      },
+    ]);
+
+    expect(() =>
+      parseStlArrayBuffer({
+        arrayBuffer,
+        fileName: "non-finite.stl",
+        fileSize: arrayBuffer.byteLength,
+      }),
+    ).toThrow(/non-finite value/);
+  });
+
 });
 
 describe("geometry helpers", () => {
@@ -265,11 +387,18 @@ describe("geometry helpers", () => {
   });
 
   it("rotates orientations with wrapping quarter-turn logic", () => {
+    expect(DEFAULT_MODEL_ORIENTATION).toEqual({ operations: [{ axis: "x", quarterTurns: 3 }] });
+
     const quarter = rotateOrientation(DEFAULT_MODEL_ORIENTATION, "x", 4);
     expect(quarter).toEqual(DEFAULT_MODEL_ORIENTATION);
 
     const wrap = rotateOrientation(DEFAULT_MODEL_ORIENTATION, "y", -1);
-    expect(wrap).toEqual({ operations: [{ axis: "y", quarterTurns: 3 }] });
+    expect(wrap).toEqual({
+      operations: [
+        { axis: "x", quarterTurns: 3 },
+        { axis: "y", quarterTurns: 3 },
+      ],
+    });
 
     const stepped = rotateOrientation({ operations: [{ axis: "y", quarterTurns: 2 }] }, "y", 1);
     expect(stepped).toEqual({ operations: [{ axis: "y", quarterTurns: 3 }] });
@@ -282,7 +411,7 @@ describe("geometry helpers", () => {
     expect(rotated.sourceGeometry).toBe(model.sourceGeometry);
     expect(rotated.metadata).toEqual(model.metadata);
     expect(rotated.fit.fittedBounds.min.y).toBeCloseTo(0);
-    expect(rotated.orientation).toEqual({ operations: [{ axis: "x", quarterTurns: 1 }] });
+    expect(rotated.orientation).toEqual({ operations: [] });
 
     const modelBounds = computePositionBounds(rotated.geometry);
     expect(modelBounds.minY).toBeCloseTo(0);
@@ -294,12 +423,22 @@ describe("geometry helpers", () => {
     const model = loadModelFixture();
     const fromCurrent = rotateLoadedModel(model, "z", 1);
     const fromCurrentTwice = rotateLoadedModel(fromCurrent, "z", 1);
-    const direct = rebuildLoadedModel(model, { operations: [{ axis: "z", quarterTurns: 2 }] });
+    const direct = rebuildLoadedModel(model, {
+      operations: [
+        { axis: "x", quarterTurns: 3 },
+        { axis: "z", quarterTurns: 2 },
+      ],
+    });
 
     const fromCurrentTwiceBounds = computePositionBounds(fromCurrentTwice.geometry);
     const directBounds = computePositionBounds(direct.geometry);
 
-    expect(fromCurrentTwice.orientation).toEqual({ operations: [{ axis: "z", quarterTurns: 2 }] });
+    expect(fromCurrentTwice.orientation).toEqual({
+      operations: [
+        { axis: "x", quarterTurns: 3 },
+        { axis: "z", quarterTurns: 2 },
+      ],
+    });
     expect(fromCurrentTwiceBounds.minY).toBeCloseTo(0);
     expect(direct.fit.scale).toBeCloseTo(fromCurrentTwice.fit.scale);
     expect(fromCurrentTwiceBounds.minX).toBeCloseTo(directBounds.minX);
@@ -312,11 +451,9 @@ describe("geometry helpers", () => {
     const xThenY = rotateLoadedModel(rotateLoadedModel(model, "x", 1), "y", 1);
     const yThenX = rotateLoadedModel(rotateLoadedModel(model, "y", 1), "x", 1);
 
-    expect(xThenY.orientation.operations).toEqual([
-      { axis: "x", quarterTurns: 1 },
-      { axis: "y", quarterTurns: 1 },
-    ]);
+    expect(xThenY.orientation.operations).toEqual([{ axis: "y", quarterTurns: 1 }]);
     expect(yThenX.orientation.operations).toEqual([
+      { axis: "x", quarterTurns: 3 },
       { axis: "y", quarterTurns: 1 },
       { axis: "x", quarterTurns: 1 },
     ]);

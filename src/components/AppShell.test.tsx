@@ -48,18 +48,11 @@ describe("AppShell accessibility", () => {
     });
   });
 
-  it("uses one live alert for load errors", () => {
-    renderShell({ error: "Load failed. Previous model remains loaded." });
+  it("does not render the removed custom load feedback surface", () => {
+    renderShell({ isLoading: true });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Load failed. Previous model remains loaded.");
-    expect(screen.getByTestId("global-load-feedback")).toHaveTextContent("Load failed. Previous model remains loaded.");
-  });
-
-  it("shows a visual and announced load success notice", () => {
-    renderShell({ loadNotice: "Loaded root-miniatures-lizard.stl." });
-
-    expect(screen.getByRole("status")).toHaveTextContent("Loaded root-miniatures-lizard.stl.");
-    expect(screen.getByTestId("global-load-feedback")).toHaveTextContent("Loaded root-miniatures-lizard.stl.");
+    expect(screen.queryByTestId("global-load-feedback")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("load-error")).not.toBeInTheDocument();
   });
 
   it("renders mobile sheet tabs with selected tab state", () => {
@@ -93,8 +86,8 @@ describe("AppShell accessibility", () => {
   it("exposes zenithal study controls and disables unused direction inputs when enabled", () => {
     renderShell({ activeTab: "light", zenithalStudy: true });
 
-    expect(screen.getByTestId("desktop-zenithal-study-checkbox")).toBeChecked();
-    expect(screen.getByTestId("mobile-zenithal-study-checkbox")).toBeChecked();
+    expect(screen.getByTestId("desktop-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("mobile-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
     screen.getAllByRole("button", { name: "Light direction pad" }).forEach((button) => {
       expect(button).toBeDisabled();
     });

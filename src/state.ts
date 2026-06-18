@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type {
   ActiveTab,
   AppAction,
@@ -65,8 +67,6 @@ export function createInitialState(): AppState {
     floor: persisted?.floor ?? DEFAULT_FLOOR,
     activeTab: "light",
     model: null,
-    error: null,
-    loadNotice: null,
     isLoading: false,
     loadRequestId: 0,
     presets: persisted?.presets?.length ? migrateLegacyDefaultPresets(persisted.presets) : DEFAULT_PRESETS,
@@ -101,7 +101,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeTab: action.activeTab };
     case "load-start":
       assertLoadRequestId(action.requestId);
-      return { ...state, loadRequestId: action.requestId, isLoading: true, error: null, loadNotice: null };
+      return { ...state, loadRequestId: action.requestId, isLoading: true };
     case "load-success":
       assertLoadRequestId(action.requestId);
       if (action.requestId !== state.loadRequestId) {
@@ -111,21 +111,18 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         isLoading: false,
         model: action.model,
-        error: null,
-        loadNotice: formatLoadSuccess(action.model.metadata.fileName),
       };
     case "replace-model":
-      return { ...state, model: action.model, error: null };
+      return { ...state, model: action.model };
     case "load-error":
       assertLoadRequestId(action.requestId);
       if (action.requestId !== state.loadRequestId) {
         return state;
       }
-      return { ...state, isLoading: false, error: formatLoadError(action.message, state.model), loadNotice: null };
-    case "clear-error":
-      return { ...state, error: null };
-    case "clear-load-notice":
-      return { ...state, loadNotice: null };
+      if (!action.message || action.message.trim().length === 0) {
+        throw new Error("Invalid load error message: message is required");
+      }
+      return { ...state, isLoading: false };
     case "save-preset": {
       const nextPreset: LightPreset = {
         id: `preset-${createUuid()}`,
@@ -220,105 +217,146 @@ function matchesLegacyBacklitDefault(light: LightState): boolean {
   );
 }
 
-function formatLoadError(message: string, currentModel: AppState["model"]): string {
-  if (!message || message.trim().length === 0) {
-    throw new Error("Invalid load error message: message is required");
+function parseSchema<T>(schema: z.ZodType<T>, value: unknown, fallbackMessage: string): T {
+  const result = schema.safeParse(value);
+
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? fallbackMessage);
   }
 
-  return currentModel ? `${message}. Previous model remains loaded.` : message;
+  return result.data;
 }
 
-function formatLoadSuccess(fileName: string): string {
-  if (!fileName || fileName.trim().length === 0) {
-    throw new Error("Invalid load success message: fileName is required");
-  }
-
-  return `Loaded ${fileName}.`;
+function finiteNumberSchema(label: string): z.ZodNumber {
+  return z.number({
+    error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
+  });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function numberRangeSchema(label: string, min: number, max: number) {
+  return finiteNumberSchema(label).superRefine((value, context) => {
+    if (value < min || value > max) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid ${label}: ${value} is outside ${min}..${max}`,
+      });
+    }
+  });
 }
 
-function assertFiniteNumber(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`Invalid ${label}: ${String(value)}`);
-  }
-  return value;
+function booleanSchema(label: string): z.ZodBoolean {
+  return z.boolean({
+    error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
+  });
 }
 
-function assertNumberRange(value: unknown, label: string, min: number, max: number): number {
-  const numberValue = assertFiniteNumber(value, label);
-  if (numberValue < min || numberValue > max) {
-    throw new Error(`Invalid ${label}: ${numberValue} is outside ${min}..${max}`);
-  }
-  return numberValue;
+function stringSchema(label: string): z.ZodType<string> {
+  return z
+    .string({
+      error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
+    })
+    .superRefine((value, context) => {
+      if (value.trim().length === 0) {
+        context.addIssue({
+          code: "custom",
+          message: `Invalid ${label}: ${String(value)}`,
+        });
+      }
+    });
 }
 
-function assertBoolean(value: unknown, label: string): boolean {
-  if (typeof value !== "boolean") {
-    throw new Error(`Invalid ${label}: ${String(value)}`);
-  }
-  return value;
-}
+const FLOOR_COLOR_SCHEMA: z.ZodType<string> = z
+  .string({
+    error: (issue) => `Invalid floor color: ${String(issue.input)}`,
+  })
+  .superRefine((color, context) => {
+    if (color.trim().length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid floor color: ${String(color)}`,
+      });
+      return;
+    }
+
+    if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid floor color: ${color}`,
+      });
+    }
+  });
+
+const ZENITHAL_STUDY_SCHEMA = booleanSchema("zenithal study");
+
+const LOAD_REQUEST_ID_SCHEMA: z.ZodType<number> = finiteNumberSchema("load request id").superRefine(
+  (value, context) => {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid load request id: ${String(value)}`,
+      });
+    }
+  },
+);
+
+const ACTIVE_TAB_SCHEMA = z.enum(["light", "model", "view"], {
+  error: (issue) => `Unsupported active tab: ${String(issue.input)}`,
+});
+
+const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object(
+  {
+    azimuthDeg: numberRangeSchema("light azimuth", 0, 360),
+    elevationDeg: numberRangeSchema("light elevation", -78, 78),
+    distance: numberRangeSchema("light distance", 1, 6),
+    intensity: numberRangeSchema("light intensity", 0.1, 2.5),
+    bounceStrength: numberRangeSchema("light bounce strength", 0, 0.6),
+    shadowSoftness: numberRangeSchema("light shadow softness", 0, 1),
+    locked: booleanSchema("light locked"),
+  },
+  { error: "Invalid light state: expected object" },
+);
+
+const FLOOR_STATE_SCHEMA: z.ZodType<FloorState> = z.object(
+  {
+    color: FLOOR_COLOR_SCHEMA,
+    roughness: numberRangeSchema("floor roughness", 0.05, 1),
+  },
+  { error: "Invalid floor state: expected object" },
+);
+
+const PRESET_RECORD_SCHEMA = z.looseObject({}, { error: "Invalid preset: expected object" });
+
+const PERSISTED_VIEWER_RECORD_SCHEMA = z.looseObject(
+  {},
+  { error: "Invalid persisted viewer state: expected object" },
+);
+
+const PERSISTED_VERSION_SCHEMA = z.literal([1, 2, 3], {
+  error: (issue) => `Unsupported persisted viewer state version: ${String(issue.input)}`,
+});
+
+const PERSISTED_PRESETS_SCHEMA = z.array(z.unknown(), {
+  error: "Invalid persisted viewer state: presets must be an array",
+});
 
 function assertZenithalStudy(value: unknown): boolean {
-  return assertBoolean(value, "zenithal study");
-}
-
-function assertString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`Invalid ${label}: ${String(value)}`);
-  }
-  return value;
-}
-
-function assertColor(value: unknown): string {
-  const color = assertString(value, "floor color");
-  if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) {
-    throw new Error(`Invalid floor color: ${color}`);
-  }
-  return color;
+  return parseSchema(ZENITHAL_STUDY_SCHEMA, value, "Invalid zenithal study");
 }
 
 function assertLoadRequestId(value: unknown): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`Invalid load request id: ${String(value)}`);
-  }
-  return value;
+  return parseSchema(LOAD_REQUEST_ID_SCHEMA, value, "Invalid load request id");
 }
 
 function assertActiveTab(value: unknown): asserts value is ActiveTab {
-  if (value !== "light" && value !== "model" && value !== "view") {
-    throw new Error(`Unsupported active tab: ${String(value)}`);
-  }
+  parseSchema(ACTIVE_TAB_SCHEMA, value, "Invalid active tab");
 }
 
 function assertLightState(value: unknown): LightState {
-  if (!isRecord(value)) {
-    throw new Error("Invalid light state: expected object");
-  }
-
-  return {
-    azimuthDeg: assertNumberRange(value.azimuthDeg, "light azimuth", 0, 360),
-    elevationDeg: assertNumberRange(value.elevationDeg, "light elevation", -78, 78),
-    distance: assertNumberRange(value.distance, "light distance", 1, 6),
-    intensity: assertNumberRange(value.intensity, "light intensity", 0.1, 2.5),
-    bounceStrength: assertNumberRange(value.bounceStrength, "light bounce strength", 0, 0.6),
-    shadowSoftness: assertNumberRange(value.shadowSoftness, "light shadow softness", 0, 1),
-    locked: assertBoolean(value.locked, "light locked"),
-  };
+  return parseSchema(LIGHT_STATE_SCHEMA, value, "Invalid light state");
 }
 
 function assertFloorState(value: unknown): FloorState {
-  if (!isRecord(value)) {
-    throw new Error("Invalid floor state: expected object");
-  }
-
-  return {
-    color: assertColor(value.color),
-    roughness: assertNumberRange(value.roughness, "floor roughness", 0.05, 1),
-  };
+  return parseSchema(FLOOR_STATE_SCHEMA, value, "Invalid floor state");
 }
 
 function assertPreset(
@@ -328,31 +366,28 @@ function assertPreset(
     requireZenithalStudy,
   }: { requireValueRamp: boolean; requireZenithalStudy: boolean },
 ): LightPreset {
-  if (!isRecord(value)) {
-    throw new Error("Invalid preset: expected object");
-  }
-
-  const valueMode = value.valueMode;
+  const preset = parseSchema(PRESET_RECORD_SCHEMA, value, "Invalid preset");
+  const valueMode = preset.valueMode;
   assertValueMode(valueMode);
 
   let valueRamp = DEFAULT_VALUE_RAMP;
-  if ("valueRamp" in value) {
-    valueRamp = assertValueRampState(value.valueRamp);
+  if ("valueRamp" in preset) {
+    valueRamp = assertValueRampState(preset.valueRamp);
   } else if (requireValueRamp) {
     throw new Error("Invalid preset value ramp: expected object");
   }
 
   let zenithalStudy = DEFAULT_ZENITHAL_STUDY;
-  if ("zenithalStudy" in value) {
-    zenithalStudy = assertZenithalStudy(value.zenithalStudy);
+  if ("zenithalStudy" in preset) {
+    zenithalStudy = assertZenithalStudy(preset.zenithalStudy);
   } else if (requireZenithalStudy) {
     throw new Error("Invalid preset zenithal study: expected boolean");
   }
 
   return {
-    id: assertString(value.id, "preset id"),
-    name: assertString(value.name, "preset name"),
-    light: assertLightState(value.light),
+    id: parseSchema(stringSchema("preset id"), preset.id, "Invalid preset id"),
+    name: parseSchema(stringSchema("preset name"), preset.name, "Invalid preset name"),
+    light: assertLightState(preset.light),
     valueMode,
     valueRamp,
     zenithalStudy,
@@ -360,38 +395,41 @@ function assertPreset(
 }
 
 function assertPersistedViewerState(value: unknown): PersistedViewerState {
-  if (!isRecord(value)) {
-    throw new Error("Invalid persisted viewer state: expected object");
-  }
-
-  if (value.version !== 1 && value.version !== 2 && value.version !== 3) {
-    throw new Error(`Unsupported persisted viewer state version: ${String(value.version)}`);
-  }
-
-  const valueMode = value.valueMode;
+  const persisted = parseSchema(
+    PERSISTED_VIEWER_RECORD_SCHEMA,
+    value,
+    "Invalid persisted viewer state",
+  );
+  const version = parseSchema(
+    PERSISTED_VERSION_SCHEMA,
+    persisted.version,
+    "Unsupported persisted viewer state version",
+  );
+  const valueMode = persisted.valueMode;
   assertValueMode(valueMode);
+  const presets = parseSchema(
+    PERSISTED_PRESETS_SCHEMA,
+    persisted.presets,
+    "Invalid persisted viewer state presets",
+  );
 
-  if (!Array.isArray(value.presets)) {
-    throw new Error("Invalid persisted viewer state: presets must be an array");
-  }
-
-  const hasPersistedValueRamp = value.version === 2 || value.version === 3;
-  const isCurrentVersion = value.version === 3;
+  const hasPersistedValueRamp = version === 2 || version === 3;
+  const isCurrentVersion = version === 3;
   const valueRamp = hasPersistedValueRamp
-    ? assertValueRampState(value.valueRamp)
+    ? assertValueRampState(persisted.valueRamp)
     : DEFAULT_VALUE_RAMP;
   const zenithalStudy = isCurrentVersion
-    ? assertZenithalStudy(value.zenithalStudy)
+    ? assertZenithalStudy(persisted.zenithalStudy)
     : DEFAULT_ZENITHAL_STUDY;
 
   return {
     version: 3,
-    light: assertLightState(value.light),
+    light: assertLightState(persisted.light),
     valueMode,
     valueRamp,
     zenithalStudy,
-    floor: assertFloorState(value.floor),
-    presets: value.presets.map((preset) =>
+    floor: assertFloorState(persisted.floor),
+    presets: presets.map((preset) =>
       assertPreset(preset, {
         requireValueRamp: hasPersistedValueRamp,
         requireZenithalStudy: isCurrentVersion,

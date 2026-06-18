@@ -216,8 +216,6 @@ describe("load reducer lifecycle", () => {
     const staleOlderError = appReducer(staleOlderLoaded, { type: "load-error", requestId: 1, message: "older failed" });
 
     expect(staleOlderError.model).toBe(newer);
-    expect(staleOlderError.loadNotice).toBe("Loaded newer.stl.");
-    expect(staleOlderError.error).toBeNull();
     expect(staleOlderError.isLoading).toBe(false);
   });
 
@@ -229,30 +227,28 @@ describe("load reducer lifecycle", () => {
     const failed = appReducer(loadingReplacement, { type: "load-error", requestId: 2, message: "replacement failed" });
 
     expect(failed.model).toBe(model);
-    expect(failed.error).toBe("replacement failed. Previous model remains loaded.");
-    expect(failed.loadNotice).toBeNull();
     expect(failed.isLoading).toBe(false);
   });
 
-  it("clears stale notices while loading and sets a visible success notice", () => {
+  it("tracks loading lifecycle without storing transient notices", () => {
     const model = createModelStub("current", "current.stl");
     const loading = appReducer(createInitialState(), { type: "load-start", requestId: 1 });
     const loaded = appReducer(loading, { type: "load-success", requestId: 1, model });
     const loadingAgain = appReducer(loaded, { type: "load-start", requestId: 2 });
 
-    expect(loaded.loadNotice).toBe("Loaded current.stl.");
-    expect(loadingAgain.loadNotice).toBeNull();
+    expect(loading.isLoading).toBe(true);
+    expect(loaded.isLoading).toBe(false);
+    expect(loaded.model).toBe(model);
+    expect(loadingAgain.isLoading).toBe(true);
+    expect(loadingAgain.model).toBe(model);
   });
 
-  it("clears load success notices without clearing the loaded model", () => {
-    const model = createModelStub("current", "current.stl");
+  it("fails fast when load errors omit their message", () => {
     const loading = appReducer(createInitialState(), { type: "load-start", requestId: 1 });
-    const loaded = appReducer(loading, { type: "load-success", requestId: 1, model });
-    const cleared = appReducer(loaded, { type: "clear-load-notice" });
 
-    expect(cleared.model).toBe(model);
-    expect(cleared.loadNotice).toBeNull();
-    expect(cleared.error).toBeNull();
+    expect(() => appReducer(loading, { type: "load-error", requestId: 1, message: "" })).toThrow(
+      "Invalid load error message: message is required",
+    );
   });
 });
 

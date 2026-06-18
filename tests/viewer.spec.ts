@@ -1,12 +1,11 @@
-import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
 
-const lizardPath = "/Users/rafael.villca/Downloads/root-miniatures-lizard.stl";
+const zUpMiniPath = fileURLToPath(new URL("./fixtures/z-up-mini.stl", import.meta.url));
+const degenerateMiniPath = fileURLToPath(new URL("./fixtures/degenerate-mini.stl", import.meta.url));
 
 test.describe("STL viewer", () => {
-  test.skip(!existsSync(lizardPath), `Missing fixture: ${lizardPath}`);
-
-  test("loads and manipulates the lizard STL without render errors", async ({ page }) => {
+  test("loads and manipulates a z-up STL with the default import orientation", async ({ page }) => {
     const messages: string[] = [];
     page.on("console", (message) => {
       if (["error", "warning"].includes(message.type())) {
@@ -16,22 +15,23 @@ test.describe("STL viewer", () => {
     page.on("pageerror", (error) => messages.push(error.message));
 
     await page.goto("/");
-    await page.getByTestId("stl-file-input").setInputFiles(lizardPath);
-    await expect(page.getByRole("heading", { name: "root-miniatures-lizard.stl" }).first()).toBeVisible();
-    await expect(page.getByTestId("load-error")).toHaveCount(0);
+    await expect(page.getByText("Miniature Light Studio")).toBeVisible();
+    await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+    await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+    const loadedToast = page.getByText("Loaded z-up-mini.stl.");
+    await expect(loadedToast).toBeVisible();
+    await expect(page.getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
+    await expect(loadedToast).toBeHidden({ timeout: 6000 });
 
     const dataUrlLength = await page.locator("canvas").evaluate((canvas) => canvas.toDataURL("image/png").length);
     expect(dataUrlLength).toBeGreaterThan(1000);
 
-    await page.getByTestId("rotate-x-positive").click();
     await page.getByTestId("rotate-y-positive").click();
-    await expect(page.getByText("1. X +90°")).toBeVisible();
+    await expect(page.getByText("1. X -90°")).toBeVisible();
     await expect(page.getByText("2. Y +90°")).toBeVisible();
 
     await page.getByTestId("reset-model-orientation-button").click();
-    await expect(page.getByText("Identity")).toBeVisible();
-
-    await page.getByTestId("rotate-x-negative").click();
     await expect(page.getByText("1. X -90°")).toBeVisible();
 
     const desktopValueMode = page.getByTestId("value-mode-control");
@@ -40,11 +40,11 @@ test.describe("STL viewer", () => {
     await page.getByRole("slider", { name: "Shadow Value" }).fill("30");
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
 
-    await page.getByTestId("desktop-zenithal-study-checkbox").check();
-    await expect(page.getByTestId("desktop-zenithal-study-checkbox")).toBeChecked();
+    await page.getByTestId("desktop-zenithal-study-checkbox").click();
+    await expect(page.getByTestId("desktop-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeDisabled();
     await expect(page.getByTestId("light-elevation-slider").first()).toBeDisabled();
-    await page.getByTestId("desktop-zenithal-study-checkbox").uncheck();
+    await page.getByTestId("desktop-zenithal-study-checkbox").click();
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
 
     await desktopValueMode.locator("label").filter({ hasText: "5-Step" }).click();
@@ -56,6 +56,17 @@ test.describe("STL viewer", () => {
     await shadowSoftness.fill("1");
     await shadowSoftness.fill("0");
 
+    await page.getByTestId("stl-file-input").setInputFiles({
+      name: "invalid.stl",
+      mimeType: "model/stl",
+      buffer: Buffer.from([0]),
+    });
+    const errorToast = page.getByText(/Invalid STL content for invalid\.stl/);
+    await expect(errorToast).toBeVisible();
+    await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
+    await expect(errorToast).toBeHidden({ timeout: 8000 });
+
     const relevantMessages = messages.filter(
       (message) => !message.includes("React DevTools") && !message.includes("GPU stall due to ReadPixels"),
     );
@@ -65,14 +76,17 @@ test.describe("STL viewer", () => {
   test("keeps mobile controls usable at 320x568", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.goto("/");
-    await page.getByTestId("stl-file-input").setInputFiles(lizardPath);
+    await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
     await page.getByRole("tab", { name: "Model" }).click();
-    await expect(page.getByRole("heading", { name: "root-miniatures-lizard.stl" }).first()).toBeVisible();
-    await page.locator(".mobile-sheet").getByTestId("rotate-x-negative").click();
+    await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
     await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
-    await page.getByTestId("mobile-stl-file-input").setInputFiles(lizardPath);
-    await expect(page.locator(".mobile-sheet").getByText("Identity")).toBeVisible();
-    await expect(page.getByTestId("global-load-feedback")).toContainText("Loaded root-miniatures-lizard.stl.");
+    await page.locator(".mobile-sheet").getByTestId("rotate-y-positive").click();
+    await expect(page.locator(".mobile-sheet").getByText("2. Y +90°")).toBeVisible();
+    await page.locator(".mobile-sheet").getByTestId("reset-model-orientation-button").click();
+    await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
+    await page.getByTestId("mobile-stl-file-input").setInputFiles(zUpMiniPath);
+    await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
 
     const boxes = await page.evaluate(() => {
       const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
@@ -96,8 +110,8 @@ test.describe("STL viewer", () => {
     expect(boxes.hasSunCue).toBe(false);
 
     await page.getByRole("tab", { name: "Light" }).click();
-    await page.getByTestId("mobile-zenithal-study-checkbox").check();
-    await expect(page.getByTestId("mobile-zenithal-study-checkbox")).toBeChecked();
+    await page.getByTestId("mobile-zenithal-study-checkbox").click();
+    await expect(page.getByTestId("mobile-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
     await expect(page.locator(".mobile-sheet").getByTestId("light-azimuth-slider")).toBeDisabled();
     await expect(page.locator(".mobile-sheet").getByTestId("light-elevation-slider")).toBeDisabled();
     const lightLayout = await page.evaluate(() => {
@@ -143,7 +157,7 @@ test.describe("STL viewer", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await page.getByRole("tab", { name: "Light" }).click();
-    await page.getByTestId("mobile-zenithal-study-checkbox").check();
+    await page.getByTestId("mobile-zenithal-study-checkbox").click();
 
     const layout = await page.evaluate(() => {
       const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
@@ -160,5 +174,16 @@ test.describe("STL viewer", () => {
     expect(layout.dome!.width).toBeLessThanOrEqual(150);
     expect(layout.dome!.height).toBeLessThan(layout.sheetBody!.height);
     expect(layout.horizontalOverflow).toBe(false);
+  });
+
+  test("loads a synthetic STL after dropping degenerate facets", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("stl-file-input").setInputFiles(degenerateMiniPath);
+
+    await expect(page.getByRole("heading", { name: "degenerate-mini.stl" }).first()).toBeVisible();
+    await expect(page.getByText("Loaded degenerate-mini.stl.")).toBeVisible();
+    await expect(page.getByText("2 tris").first()).toBeVisible();
+    await expect(page.getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
   });
 });

@@ -8,7 +8,10 @@ import type {
   ValueRampState,
 } from "../types";
 import { Box, FolderOpen, RotateCcw, RotateCw, Lock, SlidersHorizontal } from "lucide-react";
-import type { ChangeEvent, Dispatch, KeyboardEvent, ReactNode } from "react";
+import * as Switch from "@radix-ui/react-switch";
+import * as Tabs from "@radix-ui/react-tabs";
+import * as Toggle from "@radix-ui/react-toggle";
+import type { ChangeEvent, Dispatch, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef } from "react";
 import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
 import { IconButton } from "./IconButton";
@@ -226,46 +229,20 @@ function ZenithalStudyControl({
   onChange: (checked: boolean) => void;
   testId: string;
 }) {
+  const labelId = useId();
+
   return (
-    <label className="checkbox-control">
-      <input
-        type="checkbox"
+    <div className="checkbox-control">
+      <Switch.Root
+        className="checkbox-control__switch"
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={onChange}
         data-testid={testId}
-      />
-      <span>Zenithal Study</span>
-    </label>
-  );
-}
-
-function LiveRegions({ state }: { state: AppState }) {
-  return (
-    <div className="visually-hidden">
-      <div role="status" aria-live="polite" aria-atomic="true">
-        {state.isLoading ? "Loading STL..." : state.loadNotice ?? ""}
-      </div>
-      <div role="alert" aria-atomic="true">
-        {state.error ?? ""}
-      </div>
-    </div>
-  );
-}
-
-function LoadFeedback({ state }: { state: AppState }) {
-  const message = state.error ?? (state.isLoading ? "Loading STL..." : state.loadNotice);
-
-  if (!message) {
-    return null;
-  }
-
-  return (
-    <div
-      className={`load-feedback${state.error ? " load-feedback--error" : ""}`}
-      data-testid="global-load-feedback"
-      aria-hidden="true"
-    >
-      {message}
+        aria-labelledby={labelId}
+      >
+        <Switch.Thumb className="checkbox-control__thumb" />
+      </Switch.Root>
+      <span id={labelId}>Zenithal Study</span>
     </div>
   );
 }
@@ -283,7 +260,6 @@ export function AppShell({
   const lightLocked = state.light.locked;
   const desktopFileInputId = useId();
   const mobileFileInputId = useId();
-  const mobileTabBaseId = useId();
   const mobileSheetBodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -328,46 +304,12 @@ export function AppShell({
     }
   };
 
-  const focusMobileTab = (tab: ActiveTab) => {
-    requestAnimationFrame(() => {
-      document.getElementById(`${mobileTabBaseId}-${tab}-tab`)?.focus();
-    });
-  };
-
   const setMobileTab = (activeTab: ActiveTab) => {
     dispatch({ type: "set-active-tab", activeTab });
-    focusMobileTab(activeTab);
-  };
-
-  const handleMobileTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, activeTab: ActiveTab) => {
-    const currentIndex = MOBILE_TABS.findIndex((tab) => tab.value === activeTab);
-    const lastIndex = MOBILE_TABS.length - 1;
-    let nextIndex: number | null = null;
-
-    if (event.key === "ArrowLeft") {
-      nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
-    } else if (event.key === "ArrowRight") {
-      nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
-    } else if (event.key === "Home") {
-      nextIndex = 0;
-    } else if (event.key === "End") {
-      nextIndex = lastIndex;
-    } else if (event.key === "Enter" || event.key === " ") {
-      nextIndex = currentIndex;
-    }
-
-    if (nextIndex === null) {
-      return;
-    }
-
-    event.preventDefault();
-    setMobileTab(MOBILE_TABS[nextIndex].value);
   };
 
   return (
     <div className="app-shell">
-      <LiveRegions state={state} />
-      <LoadFeedback state={state} />
       <header className="toolbar desktop-toolbar">
         <div className="toolbar__brand">
           <Box size={24} className="brand-mark" />
@@ -378,9 +320,17 @@ export function AppShell({
           <IconButton icon={<RotateCcw size={16} />} onClick={onResetView} data-testid="reset-view-button">
             Reset View
           </IconButton>
-          <IconButton icon={<Lock size={16} />} onClick={handleLockToggle} isActive={lightLocked} data-testid="lock-light-button">
-            Lock Light
-          </IconButton>
+          <Toggle.Root
+            className={`icon-btn icon-btn-ghost${lightLocked ? " is-active" : ""}`}
+            pressed={lightLocked}
+            onPressedChange={handleLockToggle}
+            data-testid="lock-light-button"
+          >
+            <span className="icon-btn__icon">
+              <Lock size={16} />
+            </span>
+            <span className="icon-btn__label">Lock Light</span>
+          </Toggle.Root>
           <SegmentedControl
             options={VALUE_OPTIONS}
             value={state.valueMode}
@@ -404,14 +354,14 @@ export function AppShell({
           <button className="mobile-toolbar__icon" type="button" onClick={onResetView} aria-label="Reset View">
             <RotateCcw size={16} />
           </button>
-          <button
+          <Toggle.Root
             className={`mobile-toolbar__icon${lightLocked ? " is-active" : ""}`}
-            type="button"
-            onClick={handleLockToggle}
+            pressed={lightLocked}
+            onPressedChange={handleLockToggle}
             aria-label="Lock Light"
           >
             <Lock size={16} />
-          </button>
+          </Toggle.Root>
         </div>
       </header>
 
@@ -426,11 +376,6 @@ export function AppShell({
             {state.isLoading && (
               <div className="status-line" data-testid="loading-state" aria-hidden="true">
                 Loading STL...
-              </div>
-            )}
-            {state.error && (
-              <div className="error-banner" data-testid="load-error" aria-hidden="true">
-                {state.error}
               </div>
             )}
             <div className="button-row">
@@ -533,36 +478,23 @@ export function AppShell({
         </aside>
       </div>
 
-      <section className="mobile-sheet">
-        <div className="mobile-sheet__tabs" role="tablist" aria-label="Mobile controls">
+      <Tabs.Root className="mobile-sheet" value={state.activeTab} onValueChange={(value) => setMobileTab(value as ActiveTab)}>
+        <Tabs.List className="mobile-sheet__tabs" aria-label="Mobile controls">
           {MOBILE_TABS.map((tab) => {
             const active = state.activeTab === tab.value;
             return (
-              <button
-                id={`${mobileTabBaseId}-${tab.value}-tab`}
+              <Tabs.Trigger
                 key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                aria-controls={`${mobileTabBaseId}-${tab.value}-panel`}
-                tabIndex={active ? 0 : -1}
                 className={active ? "is-active" : ""}
-                onClick={() => setMobileTab(tab.value)}
-                onKeyDown={(event) => handleMobileTabKeyDown(event, tab.value)}
+                value={tab.value}
               >
                 {tab.label}
-              </button>
+              </Tabs.Trigger>
             );
           })}
-        </div>
-        <div
-          id={`${mobileTabBaseId}-${state.activeTab}-panel`}
-          className="mobile-sheet__body"
-          role="tabpanel"
-          aria-labelledby={`${mobileTabBaseId}-${state.activeTab}-tab`}
-          ref={mobileSheetBodyRef}
-        >
-          {state.activeTab === "light" && (
+        </Tabs.List>
+        <div className="mobile-sheet__body" ref={mobileSheetBodyRef}>
+          <Tabs.Content value="light">
             <section className="panel-section">
               <ZenithalStudyControl
                 checked={state.zenithalStudy}
@@ -576,8 +508,8 @@ export function AppShell({
                 zenithalStudy={state.zenithalStudy}
               />
             </section>
-          )}
-          {state.activeTab === "model" && (
+          </Tabs.Content>
+          <Tabs.Content value="model">
             <section className="panel-section">
               <div className="panel-section__header">
                 <h3>Model</h3>
@@ -585,7 +517,6 @@ export function AppShell({
               </div>
               <FileSummary model={state.model} />
               {state.isLoading && <div className="status-line" aria-hidden="true">Loading STL...</div>}
-              {state.error && <div className="error-banner" aria-hidden="true">{state.error}</div>}
               <div className="button-row">
                 <button type="button" onClick={onFitToView} disabled={!state.model}>
                   Fit to View
@@ -603,8 +534,34 @@ export function AppShell({
                 onResetModelOrientation={onResetModelOrientation}
               />
             </section>
-          )}
-          {state.activeTab === "view" && (
+            <section className="panel-section">
+              <div className="panel-section__header">
+                <h3>Presets</h3>
+                <ActionButton
+                  icon={<SlidersHorizontal size={14} />}
+                  label="Save"
+                  onClick={() => dispatch({ type: "save-preset" })}
+                  disabled={lightLocked}
+                />
+              </div>
+              <div className="preset-list">
+                {state.presets.map((preset) => (
+                  <button
+                    type="button"
+                    key={preset.id}
+                    className="preset-item"
+                    onClick={() => loadPreset(preset.id)}
+                    disabled={lightLocked}
+                    title={preset.name}
+                  >
+                    <span>{preset.name}</span>
+                    <span>{preset.valueMode}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </Tabs.Content>
+          <Tabs.Content value="view">
             <div className="mobile-sheet__stack">
               <section className="panel-section">
                 <h3>View</h3>
@@ -641,37 +598,9 @@ export function AppShell({
                 />
               </section>
             </div>
-          )}
-          {state.activeTab === "model" && (
-            <section className="panel-section">
-              <div className="panel-section__header">
-                <h3>Presets</h3>
-                <ActionButton
-                  icon={<SlidersHorizontal size={14} />}
-                  label="Save"
-                  onClick={() => dispatch({ type: "save-preset" })}
-                  disabled={lightLocked}
-                />
-              </div>
-              <div className="preset-list">
-                {state.presets.map((preset) => (
-                  <button
-                    type="button"
-                    key={preset.id}
-                    className="preset-item"
-                    onClick={() => loadPreset(preset.id)}
-                    disabled={lightLocked}
-                    title={preset.name}
-                  >
-                    <span>{preset.name}</span>
-                    <span>{preset.valueMode}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
+          </Tabs.Content>
         </div>
-      </section>
+      </Tabs.Root>
     </div>
   );
 }

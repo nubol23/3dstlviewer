@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { ValueMode } from "../types";
 
 export type ValueModeDescriptor = {
@@ -20,10 +22,22 @@ export const VALUE_MODE_DESCRIPTORS: Record<ValueMode, ValueModeDescriptor> = {
   },
 };
 
-export function assertValueMode(mode: unknown): asserts mode is ValueMode {
-  if (mode !== "shaded" && mode !== "three-step" && mode !== "five-step") {
-    throw new Error(`Unsupported value mode: ${String(mode)}`);
+const VALUE_MODE_SCHEMA = z.enum(["shaded", "three-step", "five-step"], {
+  error: (issue) => `Unsupported value mode: ${String(issue.input)}`,
+});
+
+function parseSchema<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? "Invalid value mode");
   }
+
+  return result.data;
+}
+
+export function assertValueMode(mode: unknown): asserts mode is ValueMode {
+  parseSchema(VALUE_MODE_SCHEMA, mode);
 }
 
 export function getValueModeDescriptor(mode: ValueMode): ValueModeDescriptor {

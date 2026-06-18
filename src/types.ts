@@ -18,7 +18,7 @@ export type ModelOrientation = {
 };
 
 export const DEFAULT_MODEL_ORIENTATION: ModelOrientation = {
-  operations: [],
+  operations: [{ axis: "x", quarterTurns: 3 }],
 };
 
 export type LightState = {
@@ -94,8 +94,6 @@ export type AppState = {
   floor: FloorState;
   activeTab: ActiveTab;
   model: LoadedModel | null;
-  error: string | null;
-  loadNotice: string | null;
   isLoading: boolean;
   loadRequestId: number;
   presets: LightPreset[];
@@ -114,7 +112,5 @@ export type AppAction =
   | { type: "load-success"; requestId: number; model: LoadedModel }
   | { type: "replace-model"; model: LoadedModel }
   | { type: "load-error"; requestId: number; message: string }
-  | { type: "clear-error" }
-  | { type: "clear-load-notice" }
   | { type: "save-preset" }
   | { type: "load-preset"; presetId: string };
