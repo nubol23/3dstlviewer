@@ -109,6 +109,28 @@ test.describe("STL viewer", () => {
     expect(boxes.hasModeOverlay).toBe(false);
     expect(boxes.hasSunCue).toBe(false);
 
+    const maximizeButton = page.getByTestId("maximize-viewer-button");
+    await maximizeButton.click();
+    await expect(maximizeButton).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".mobile-sheet")).toBeHidden();
+    const maximizedBoxes = await page.evaluate(() => {
+      const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
+      const sheet = document.querySelector(".mobile-sheet")?.getBoundingClientRect();
+      return {
+        viewport: viewport ? { top: viewport.top, bottom: viewport.bottom, height: viewport.height } : null,
+        sheet: sheet ? { height: sheet.height } : null,
+        horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+      };
+    });
+    expect(maximizedBoxes.viewport).not.toBeNull();
+    expect(maximizedBoxes.viewport!.height).toBeGreaterThan(boxes.viewport!.height + 100);
+    expect(maximizedBoxes.viewport!.bottom).toBeLessThanOrEqual(568);
+    expect(maximizedBoxes.sheet!.height).toBe(0);
+    expect(maximizedBoxes.horizontalOverflow).toBe(false);
+    await page.keyboard.press("Escape");
+    await expect(maximizeButton).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".mobile-sheet")).toBeVisible();
+
     await page.getByRole("tab", { name: "Light" }).click();
     await page.getByTestId("mobile-zenithal-study-checkbox").click();
     await expect(page.getByTestId("mobile-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");

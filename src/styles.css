@@ -794,6 +794,10 @@ input:disabled,
     color: #ffd47c;
   }
 
+  .mobile-sheet[hidden] {
+    display: none;
+  }
+
   .workbench {
     grid-template-columns: 1fr;
     flex: 1;
@@ -812,6 +816,10 @@ input:disabled,
     border-radius: 8px 8px 0 0;
     height: auto;
     min-height: 0;
+  }
+
+  .app-shell.is-viewer-maximized .viewport {
+    border-radius: 8px;
   }
 
   .viewer-shell {

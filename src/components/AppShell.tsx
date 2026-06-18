@@ -7,12 +7,12 @@ import type {
   OrientationTurnOperation,
   ValueRampState,
 } from "../types";
-import { Box, FolderOpen, RotateCcw, RotateCw, Lock, SlidersHorizontal } from "lucide-react";
+import { Box, FolderOpen, RotateCcw, RotateCw, Lock, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
 import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Toggle from "@radix-ui/react-toggle";
 import type { ChangeEvent, Dispatch, ReactNode } from "react";
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
 import { IconButton } from "./IconButton";
 import { SunDomeControl } from "./SunDomeControl";
@@ -261,12 +261,30 @@ export function AppShell({
   const desktopFileInputId = useId();
   const mobileFileInputId = useId();
   const mobileSheetBodyRef = useRef<HTMLDivElement>(null);
+  const [isViewerMaximized, setIsViewerMaximized] = useState(false);
 
   useEffect(() => {
     if (mobileSheetBodyRef.current) {
       mobileSheetBodyRef.current.scrollTop = 0;
     }
   }, [state.activeTab]);
+
+  useEffect(() => {
+    if (!isViewerMaximized) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsViewerMaximized(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isViewerMaximized]);
 
   const handleLockToggle = () => {
     dispatch({ type: "toggle-lock" });
@@ -309,7 +327,7 @@ export function AppShell({
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isViewerMaximized ? " is-viewer-maximized" : ""}`}>
       <header className="toolbar desktop-toolbar">
         <div className="toolbar__brand">
           <Box size={24} className="brand-mark" />
@@ -353,6 +371,16 @@ export function AppShell({
           <FileInputControl id={mobileFileInputId} testId="mobile-stl-file-input" compact onChange={handleFileChange} />
           <button className="mobile-toolbar__icon" type="button" onClick={onResetView} aria-label="Reset View">
             <RotateCcw size={16} />
+          </button>
+          <button
+            className={`mobile-toolbar__icon${isViewerMaximized ? " is-active" : ""}`}
+            type="button"
+            onClick={() => setIsViewerMaximized((current) => !current)}
+            aria-label="Maximize Viewer"
+            aria-pressed={isViewerMaximized}
+            data-testid="maximize-viewer-button"
+          >
+            {isViewerMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
           <Toggle.Root
             className={`mobile-toolbar__icon${lightLocked ? " is-active" : ""}`}
@@ -478,7 +506,12 @@ export function AppShell({
         </aside>
       </div>
 
-      <Tabs.Root className="mobile-sheet" value={state.activeTab} onValueChange={(value) => setMobileTab(value as ActiveTab)}>
+      <Tabs.Root
+        className="mobile-sheet"
+        value={state.activeTab}
+        onValueChange={(value) => setMobileTab(value as ActiveTab)}
+        hidden={isViewerMaximized}
+      >
         <Tabs.List className="mobile-sheet__tabs" aria-label="Mobile controls">
           {MOBILE_TABS.map((tab) => {
             const active = state.activeTab === tab.value;
