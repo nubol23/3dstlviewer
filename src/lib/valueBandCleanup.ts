@@ -670,7 +670,7 @@ export function computeCleanStudyBands(
   input: ComputeCleanStudyBandsInput,
   options: ValueBandCleanupOptions = {},
 ): Int8Array | null {
-  return computeCleanedStudyBands(input, options)?.overrideBands ?? null;
+  return computeCleanedStudyBands(input, options)?.cleanedBands ?? null;
 }
 
 export function expandTriangleBandsToStudyBandAttribute(

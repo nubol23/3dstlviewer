@@ -152,6 +152,22 @@ describe("value band cleanup", () => {
     ).toBeNull();
   });
 
+  it("returns a concrete band for every triangle in quantized modes", () => {
+    const geometry = createCoplanarNeighborFan();
+    const bands = computeCleanStudyBands({
+      geometry,
+      light,
+      lightTarget: new Vector3(0, 0, 0),
+      valueMode: "three-step",
+      valueRamp: { bandBias: 0 },
+      zenithalStudy: false,
+    });
+
+    expect(bands).not.toBeNull();
+    expect(bands).toHaveLength(4);
+    expect(Array.from(bands!)).not.toContain(STUDY_BAND_SENTINEL);
+  });
+
   it("uses floor and clamp quantization for 3-step and 5-step modes", () => {
     expect(quantizeStudyBand(-0.2, 3)).toBe(0);
     expect(quantizeStudyBand(0.333, 3)).toBe(0);
