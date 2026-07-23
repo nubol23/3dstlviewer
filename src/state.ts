@@ -6,10 +6,13 @@ import type {
   AppState,
   FloorState,
   LightPreset,
+  LightingMode,
   LightState,
   PersistedViewerState,
+  ValueRenderStyle,
+  ValueStepCount,
 } from "./types";
-import { assertValueMode } from "./lib/valueMode";
+import { assertValueRenderStyle, assertValueStepCount } from "./lib/valueMode";
 import { assertValueRampState, DEFAULT_VALUE_RAMP } from "./lib/valueRamp";
 import { createUuid } from "./lib/uuid";
 
@@ -17,42 +20,107 @@ export const STORAGE_KEY = "stl-value-viewer:v1";
 
 export const DEFAULT_LIGHT: LightState = {
   azimuthDeg: 315,
-  elevationDeg: 48,
+  elevationDeg: 50,
   distance: 2.8,
   intensity: 1.25,
-  bounceStrength: 0.24,
-  shadowSoftness: 0.45,
+  bounceStrength: 0.16,
+  shadowSoftness: 0.35,
   locked: false,
 };
 
-const LEGACY_BACKLIT_DEFAULT_LIGHT: LightState = {
-  ...DEFAULT_LIGHT,
-  azimuthDeg: 128,
-};
+export const DEFAULT_RENDER_STYLE: ValueRenderStyle = "smooth";
+export const DEFAULT_VALUE_STEP_COUNT: ValueStepCount = 5;
+export const DEFAULT_LIGHTING_MODE: LightingMode = "directional";
 
 export const DEFAULT_FLOOR: FloorState = {
   color: "#c4c4c1",
   roughness: 0.85,
 };
 
-export const DEFAULT_ZENITHAL_STUDY = false;
+export type LightSetup = {
+  id: string;
+  name: string;
+  description: string;
+  light: Omit<LightState, "locked">;
+  lightingMode: LightingMode;
+};
+
+export const LIGHT_SETUPS: readonly LightSetup[] = [
+  {
+    id: "bust-left",
+    name: "Bust Left",
+    description: "Upper-front-left portrait key with restrained fill.",
+    light: { ...DEFAULT_LIGHT, azimuthDeg: 315, elevationDeg: 50, bounceStrength: 0.16 },
+    lightingMode: "directional",
+  },
+  {
+    id: "bust-right",
+    name: "Bust Right",
+    description: "Mirrored upper-front-right portrait key.",
+    light: { ...DEFAULT_LIGHT, azimuthDeg: 45, elevationDeg: 50, bounceStrength: 0.16 },
+    lightingMode: "directional",
+  },
+  {
+    id: "true-zenith",
+    name: "True Zenith",
+    description: "Single light directly above the model.",
+    light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, bounceStrength: 0.12 },
+    lightingMode: "directional",
+  },
+  {
+    id: "classic-top",
+    name: "Classic Top Prime",
+    description: "Broad top-weighted illumination that preserves occluded recesses.",
+    light: {
+      ...DEFAULT_LIGHT,
+      azimuthDeg: 0,
+      elevationDeg: 90,
+      intensity: 1.15,
+      bounceStrength: 0.1,
+      shadowSoftness: 0.5,
+    },
+    lightingMode: "classic-top",
+  },
+  {
+    id: "dramatic-side",
+    name: "Dramatic Side",
+    description: "Low-fill three-quarter side light for strong form separation.",
+    light: {
+      ...DEFAULT_LIGHT,
+      azimuthDeg: 315,
+      elevationDeg: 35,
+      intensity: 1.35,
+      bounceStrength: 0.08,
+      shadowSoftness: 0.22,
+    },
+    lightingMode: "directional",
+  },
+] as const;
 
 const DEFAULT_PRESETS: LightPreset[] = [
   {
     id: "front-left-high",
-    name: "Front Left",
-    light: { ...DEFAULT_LIGHT, azimuthDeg: 315, elevationDeg: 52, distance: 3 },
-    valueMode: "shaded",
+    name: "Bust Left",
+    light: { ...DEFAULT_LIGHT },
+    renderStyle: "smooth",
+    valueStepCount: 5,
     valueRamp: DEFAULT_VALUE_RAMP,
-    zenithalStudy: DEFAULT_ZENITHAL_STUDY,
+    lightingMode: "directional",
   },
   {
     id: "rim-study",
     name: "Rim Study",
-    light: { ...DEFAULT_LIGHT, azimuthDeg: 155, elevationDeg: 34, distance: 3.4, bounceStrength: 0.18 },
-    valueMode: "five-step",
+    light: {
+      ...DEFAULT_LIGHT,
+      azimuthDeg: 155,
+      elevationDeg: 34,
+      distance: 3.4,
+      bounceStrength: 0.12,
+    },
+    renderStyle: "stepped",
+    valueStepCount: 5,
     valueRamp: DEFAULT_VALUE_RAMP,
-    zenithalStudy: DEFAULT_ZENITHAL_STUDY,
+    lightingMode: "directional",
   },
 ];
 
@@ -60,16 +128,17 @@ export function createInitialState(): AppState {
   const persisted = readPersistedState();
 
   return {
-    light: persisted?.light ? migrateLegacyDefaultLight(persisted.light) : DEFAULT_LIGHT,
-    valueMode: persisted?.valueMode ?? "shaded",
+    light: persisted?.light ?? DEFAULT_LIGHT,
+    renderStyle: persisted?.renderStyle ?? DEFAULT_RENDER_STYLE,
+    valueStepCount: persisted?.valueStepCount ?? DEFAULT_VALUE_STEP_COUNT,
     valueRamp: persisted?.valueRamp ?? DEFAULT_VALUE_RAMP,
-    zenithalStudy: persisted?.zenithalStudy ?? DEFAULT_ZENITHAL_STUDY,
+    lightingMode: persisted?.lightingMode ?? DEFAULT_LIGHTING_MODE,
     floor: persisted?.floor ?? DEFAULT_FLOOR,
     activeTab: "light",
     model: null,
     isLoading: false,
     loadRequestId: 0,
-    presets: persisted?.presets?.length ? migrateLegacyDefaultPresets(persisted.presets) : DEFAULT_PRESETS,
+    presets: persisted?.presets?.length ? persisted.presets : DEFAULT_PRESETS,
   };
 }
 
@@ -84,16 +153,40 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (state.light.locked) {
         return state;
       }
-      return { ...state, light: { ...DEFAULT_LIGHT, locked: state.light.locked } };
+      return {
+        ...state,
+        light: { ...DEFAULT_LIGHT, locked: state.light.locked },
+        lightingMode: DEFAULT_LIGHTING_MODE,
+      };
     case "toggle-lock":
       return { ...state, light: { ...state.light, locked: !state.light.locked } };
-    case "set-value-mode":
-      assertValueMode(action.valueMode);
-      return { ...state, valueMode: action.valueMode };
+    case "set-render-style":
+      assertValueRenderStyle(action.renderStyle);
+      return { ...state, renderStyle: action.renderStyle };
+    case "set-value-step-count":
+      assertValueStepCount(action.valueStepCount);
+      return { ...state, valueStepCount: action.valueStepCount };
     case "set-value-ramp":
       return { ...state, valueRamp: assertValueRampState({ ...state.valueRamp, ...action.patch }) };
-    case "set-zenithal-study":
-      return { ...state, zenithalStudy: assertZenithalStudy(action.zenithalStudy) };
+    case "set-lighting-mode":
+      if (state.light.locked) {
+        return state;
+      }
+      return { ...state, lightingMode: assertLightingMode(action.lightingMode) };
+    case "apply-light-setup": {
+      if (state.light.locked) {
+        return state;
+      }
+      const setup = LIGHT_SETUPS.find((candidate) => candidate.id === action.setupId);
+      if (!setup) {
+        throw new Error(`Unsupported light setup: ${String(action.setupId)}`);
+      }
+      return {
+        ...state,
+        light: assertLightState({ ...setup.light, locked: false }),
+        lightingMode: setup.lightingMode,
+      };
+    }
     case "set-floor":
       return { ...state, floor: assertFloorState({ ...state.floor, ...action.patch }) };
     case "set-active-tab":
@@ -107,11 +200,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (action.requestId !== state.loadRequestId) {
         return state;
       }
-      return {
-        ...state,
-        isLoading: false,
-        model: action.model,
-      };
+      return { ...state, isLoading: false, model: action.model };
     case "replace-model":
       return { ...state, model: action.model };
     case "load-error":
@@ -128,9 +217,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         id: `preset-${createUuid()}`,
         name: `Preset ${state.presets.length + 1}`,
         light: { ...state.light, locked: false },
-        valueMode: state.valueMode,
+        renderStyle: state.renderStyle,
+        valueStepCount: state.valueStepCount,
         valueRamp: state.valueRamp,
-        zenithalStudy: state.zenithalStudy,
+        lightingMode: state.lightingMode,
       };
       return { ...state, presets: [nextPreset, ...state.presets].slice(0, 8) };
     }
@@ -142,9 +232,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         light: assertLightState({ ...preset.light, locked: false }),
-        valueMode: preset.valueMode,
+        renderStyle: preset.renderStyle,
+        valueStepCount: preset.valueStepCount,
         valueRamp: preset.valueRamp,
-        zenithalStudy: preset.zenithalStudy,
+        lightingMode: preset.lightingMode,
       };
     }
     default:
@@ -152,15 +243,19 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-type PersistableAppState = Pick<AppState, "light" | "valueMode" | "valueRamp" | "zenithalStudy" | "floor" | "presets">;
+type PersistableAppState = Pick<
+  AppState,
+  "light" | "renderStyle" | "valueStepCount" | "valueRamp" | "lightingMode" | "floor" | "presets"
+>;
 
 export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
-    version: 3,
+    version: 4,
     light: state.light,
-    valueMode: state.valueMode,
+    renderStyle: state.renderStyle,
+    valueStepCount: state.valueStepCount,
     valueRamp: state.valueRamp,
-    zenithalStudy: state.zenithalStudy,
+    lightingMode: state.lightingMode,
     floor: state.floor,
     presets: state.presets,
   };
@@ -177,60 +272,23 @@ export function readPersistedState(): PersistedViewerState | null {
   }
 
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    return assertPersistedViewerState(parsed);
+    return assertPersistedViewerState(JSON.parse(raw) as unknown);
   } catch {
     localStorage.removeItem(STORAGE_KEY);
     return null;
   }
 }
 
-function migrateLegacyDefaultLight(light: LightState): LightState {
-  if (!matchesLegacyBacklitDefault(light)) {
-    return light;
-  }
-
-  return {
-    ...DEFAULT_LIGHT,
-    locked: light.locked,
-  };
-}
-
-function migrateLegacyDefaultPresets(presets: LightPreset[]): LightPreset[] {
-  return presets.map((preset) => {
-    if (preset.id === "front-left-high") {
-      return DEFAULT_PRESETS[0];
-    }
-
-    return preset;
-  });
-}
-
-function matchesLegacyBacklitDefault(light: LightState): boolean {
-  return (
-    light.azimuthDeg === LEGACY_BACKLIT_DEFAULT_LIGHT.azimuthDeg &&
-    light.elevationDeg === LEGACY_BACKLIT_DEFAULT_LIGHT.elevationDeg &&
-    light.distance === LEGACY_BACKLIT_DEFAULT_LIGHT.distance &&
-    light.intensity === LEGACY_BACKLIT_DEFAULT_LIGHT.intensity &&
-    light.bounceStrength === LEGACY_BACKLIT_DEFAULT_LIGHT.bounceStrength &&
-    light.shadowSoftness === LEGACY_BACKLIT_DEFAULT_LIGHT.shadowSoftness
-  );
-}
-
 function parseSchema<T>(schema: z.ZodType<T>, value: unknown, fallbackMessage: string): T {
   const result = schema.safeParse(value);
-
   if (!result.success) {
     throw new Error(result.error.issues[0]?.message ?? fallbackMessage);
   }
-
   return result.data;
 }
 
 function finiteNumberSchema(label: string): z.ZodNumber {
-  return z.number({
-    error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
-  });
+  return z.number({ error: (issue) => `Invalid ${label}: ${String(issue.input)}` });
 }
 
 function numberRangeSchema(label: string, min: number, max: number) {
@@ -244,107 +302,67 @@ function numberRangeSchema(label: string, min: number, max: number) {
   });
 }
 
-function booleanSchema(label: string): z.ZodBoolean {
-  return z.boolean({
-    error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
-  });
-}
-
 function stringSchema(label: string): z.ZodType<string> {
   return z
-    .string({
-      error: (issue) => `Invalid ${label}: ${String(issue.input)}`,
-    })
+    .string({ error: (issue) => `Invalid ${label}: ${String(issue.input)}` })
     .superRefine((value, context) => {
       if (value.trim().length === 0) {
-        context.addIssue({
-          code: "custom",
-          message: `Invalid ${label}: ${String(value)}`,
-        });
+        context.addIssue({ code: "custom", message: `Invalid ${label}: ${String(value)}` });
       }
     });
 }
 
-const FLOOR_COLOR_SCHEMA: z.ZodType<string> = z
-  .string({
-    error: (issue) => `Invalid floor color: ${String(issue.input)}`,
-  })
+const FLOOR_COLOR_SCHEMA = z
+  .string({ error: (issue) => `Invalid floor color: ${String(issue.input)}` })
   .superRefine((color, context) => {
-    if (color.trim().length === 0) {
-      context.addIssue({
-        code: "custom",
-        message: `Invalid floor color: ${String(color)}`,
-      });
-      return;
-    }
-
     if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) {
-      context.addIssue({
-        code: "custom",
-        message: `Invalid floor color: ${color}`,
-      });
+      context.addIssue({ code: "custom", message: `Invalid floor color: ${color}` });
     }
   });
 
-const ZENITHAL_STUDY_SCHEMA = booleanSchema("zenithal study");
-
-const LOAD_REQUEST_ID_SCHEMA: z.ZodType<number> = finiteNumberSchema("load request id").superRefine(
-  (value, context) => {
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      context.addIssue({
-        code: "custom",
-        message: `Invalid load request id: ${String(value)}`,
-      });
-    }
-  },
-);
+const LIGHTING_MODE_SCHEMA = z.enum(["directional", "classic-top"], {
+  error: (issue) => `Unsupported lighting mode: ${String(issue.input)}`,
+});
 
 const ACTIVE_TAB_SCHEMA = z.enum(["light", "model", "view"], {
   error: (issue) => `Unsupported active tab: ${String(issue.input)}`,
 });
 
-const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object(
-  {
-    azimuthDeg: numberRangeSchema("light azimuth", 0, 360),
-    elevationDeg: numberRangeSchema("light elevation", -78, 78),
-    distance: numberRangeSchema("light distance", 1, 6),
-    intensity: numberRangeSchema("light intensity", 0.1, 2.5),
-    bounceStrength: numberRangeSchema("light bounce strength", 0, 0.6),
-    shadowSoftness: numberRangeSchema("light shadow softness", 0, 1),
-    locked: booleanSchema("light locked"),
-  },
-  { error: "Invalid light state: expected object" },
-);
+const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object({
+  azimuthDeg: numberRangeSchema("light azimuth", 0, 360),
+  elevationDeg: numberRangeSchema("light elevation", -78, 90),
+  distance: numberRangeSchema("light distance", 1, 6),
+  intensity: numberRangeSchema("light intensity", 0.1, 2.5),
+  bounceStrength: numberRangeSchema("light bounce strength", 0, 0.6),
+  shadowSoftness: numberRangeSchema("light shadow softness", 0, 1),
+  locked: z.boolean({ error: (issue) => `Invalid light locked: ${String(issue.input)}` }),
+});
 
-const FLOOR_STATE_SCHEMA: z.ZodType<FloorState> = z.object(
-  {
-    color: FLOOR_COLOR_SCHEMA,
-    roughness: numberRangeSchema("floor roughness", 0.05, 1),
-  },
-  { error: "Invalid floor state: expected object" },
-);
+const FLOOR_STATE_SCHEMA: z.ZodType<FloorState> = z.object({
+  color: FLOOR_COLOR_SCHEMA,
+  roughness: numberRangeSchema("floor roughness", 0.05, 1),
+});
 
 const PRESET_RECORD_SCHEMA = z.looseObject({}, { error: "Invalid preset: expected object" });
-
 const PERSISTED_VIEWER_RECORD_SCHEMA = z.looseObject(
   {},
   { error: "Invalid persisted viewer state: expected object" },
 );
 
-const PERSISTED_VERSION_SCHEMA = z.literal([1, 2, 3], {
-  error: (issue) => `Unsupported persisted viewer state version: ${String(issue.input)}`,
-});
-
-const PERSISTED_PRESETS_SCHEMA = z.array(z.unknown(), {
-  error: "Invalid persisted viewer state: presets must be an array",
-});
-
-function assertZenithalStudy(value: unknown): boolean {
-  return parseSchema(ZENITHAL_STUDY_SCHEMA, value, "Invalid zenithal study");
+function assertLightingMode(value: unknown): LightingMode {
+  return parseSchema(LIGHTING_MODE_SCHEMA, value, "Invalid lighting mode");
 }
 
 function assertLoadRequestId(value: unknown): number {
-  return parseSchema(LOAD_REQUEST_ID_SCHEMA, value, "Invalid load request id");
+  const schema = finiteNumberSchema("load request id").superRefine((requestId, context) => {
+    if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid load request id: ${String(requestId)}`,
+      });
+    }
+  });
+  return parseSchema(schema, value, "Invalid load request id");
 }
 
 function assertActiveTab(value: unknown): asserts value is ActiveTab {
@@ -359,38 +377,19 @@ function assertFloorState(value: unknown): FloorState {
   return parseSchema(FLOOR_STATE_SCHEMA, value, "Invalid floor state");
 }
 
-function assertPreset(
-  value: unknown,
-  {
-    requireValueRamp,
-    requireZenithalStudy,
-  }: { requireValueRamp: boolean; requireZenithalStudy: boolean },
-): LightPreset {
+function assertPreset(value: unknown): LightPreset {
   const preset = parseSchema(PRESET_RECORD_SCHEMA, value, "Invalid preset");
-  const valueMode = preset.valueMode;
-  assertValueMode(valueMode);
-
-  let valueRamp = DEFAULT_VALUE_RAMP;
-  if ("valueRamp" in preset) {
-    valueRamp = assertValueRampState(preset.valueRamp);
-  } else if (requireValueRamp) {
-    throw new Error("Invalid preset value ramp: expected object");
-  }
-
-  let zenithalStudy = DEFAULT_ZENITHAL_STUDY;
-  if ("zenithalStudy" in preset) {
-    zenithalStudy = assertZenithalStudy(preset.zenithalStudy);
-  } else if (requireZenithalStudy) {
-    throw new Error("Invalid preset zenithal study: expected boolean");
-  }
+  assertValueRenderStyle(preset.renderStyle);
+  assertValueStepCount(preset.valueStepCount);
 
   return {
     id: parseSchema(stringSchema("preset id"), preset.id, "Invalid preset id"),
     name: parseSchema(stringSchema("preset name"), preset.name, "Invalid preset name"),
     light: assertLightState(preset.light),
-    valueMode,
-    valueRamp,
-    zenithalStudy,
+    renderStyle: preset.renderStyle,
+    valueStepCount: preset.valueStepCount,
+    valueRamp: assertValueRampState(preset.valueRamp),
+    lightingMode: assertLightingMode(preset.lightingMode),
   };
 }
 
@@ -400,40 +399,25 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     value,
     "Invalid persisted viewer state",
   );
-  const version = parseSchema(
-    PERSISTED_VERSION_SCHEMA,
-    persisted.version,
-    "Unsupported persisted viewer state version",
-  );
-  const valueMode = persisted.valueMode;
-  assertValueMode(valueMode);
+  parseSchema(z.literal(4), persisted.version, "Unsupported persisted viewer state version");
+  assertValueRenderStyle(persisted.renderStyle);
+  assertValueStepCount(persisted.valueStepCount);
   const presets = parseSchema(
-    PERSISTED_PRESETS_SCHEMA,
+    z.array(z.unknown(), {
+      error: "Invalid persisted viewer state: presets must be an array",
+    }),
     persisted.presets,
     "Invalid persisted viewer state presets",
   );
 
-  const hasPersistedValueRamp = version === 2 || version === 3;
-  const isCurrentVersion = version === 3;
-  const valueRamp = hasPersistedValueRamp
-    ? assertValueRampState(persisted.valueRamp)
-    : DEFAULT_VALUE_RAMP;
-  const zenithalStudy = isCurrentVersion
-    ? assertZenithalStudy(persisted.zenithalStudy)
-    : DEFAULT_ZENITHAL_STUDY;
-
   return {
-    version: 3,
+    version: 4,
     light: assertLightState(persisted.light),
-    valueMode,
-    valueRamp,
-    zenithalStudy,
+    renderStyle: persisted.renderStyle,
+    valueStepCount: persisted.valueStepCount,
+    valueRamp: assertValueRampState(persisted.valueRamp),
+    lightingMode: assertLightingMode(persisted.lightingMode),
     floor: assertFloorState(persisted.floor),
-    presets: presets.map((preset) =>
-      assertPreset(preset, {
-        requireValueRamp: hasPersistedValueRamp,
-        requireZenithalStudy: isCurrentVersion,
-      }),
-    ),
+    presets: presets.map(assertPreset),
   };
 }

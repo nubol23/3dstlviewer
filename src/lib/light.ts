@@ -1,6 +1,6 @@
 import { MathUtils, Vector3 } from "three";
 
-import type { LightState, ModelFitState } from "../types";
+import type { LightingMode, LightState, ModelFitState } from "../types";
 
 export const SHADOW_MAP_SIZE_MIN = 512;
 export const SHADOW_MAP_SIZE_MAX = 2048;
@@ -24,6 +24,21 @@ export type LightShadowCameraConfig = {
   top: number;
   bottom: number;
 };
+
+export function resolveStudyLight(light: LightState, lightingMode: LightingMode): LightState {
+  if (lightingMode === "directional") {
+    return light;
+  }
+  if (lightingMode !== "classic-top") {
+    throw new Error(`Unsupported lighting mode: ${String(lightingMode)}`);
+  }
+
+  return {
+    ...light,
+    azimuthDeg: 0,
+    elevationDeg: 90,
+  };
+}
 
 function failFastNumber(value: number, label: string): number {
   if (!Number.isFinite(value)) {

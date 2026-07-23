@@ -145,30 +145,32 @@ describe("value band cleanup", () => {
         geometry,
         light,
         lightTarget: new Vector3(0, 0, 0),
-        valueMode: "shaded",
+        renderStyle: "smooth",
+        stepCount: 5,
         valueRamp: { bandBias: 0 },
-        zenithalStudy: false,
+        lightingMode: "directional",
       }),
     ).toBeNull();
   });
 
-  it("returns a concrete band for every triangle in quantized modes", () => {
+  it("returns sparse overrides so the shader preserves physical shadows", () => {
     const geometry = createCoplanarNeighborFan();
     const bands = computeCleanStudyBands({
       geometry,
       light,
       lightTarget: new Vector3(0, 0, 0),
-      valueMode: "three-step",
+      renderStyle: "stepped",
+      stepCount: 3,
       valueRamp: { bandBias: 0 },
-      zenithalStudy: false,
+      lightingMode: "directional",
     });
 
     expect(bands).not.toBeNull();
     expect(bands).toHaveLength(4);
-    expect(Array.from(bands!)).not.toContain(STUDY_BAND_SENTINEL);
+    expect(Array.from(bands!)).toEqual(Array(4).fill(STUDY_BAND_SENTINEL));
   });
 
-  it("uses floor and clamp quantization for 3-step and 5-step modes", () => {
+  it("uses floor and clamp quantization for every supported value count", () => {
     expect(quantizeStudyBand(-0.2, 3)).toBe(0);
     expect(quantizeStudyBand(0.333, 3)).toBe(0);
     expect(quantizeStudyBand(0.334, 3)).toBe(1);
@@ -176,6 +178,21 @@ describe("value band cleanup", () => {
     expect(quantizeStudyBand(0.199, 5)).toBe(0);
     expect(quantizeStudyBand(0.2, 5)).toBe(1);
     expect(quantizeStudyBand(1.2, 5)).toBe(4);
+    expect(quantizeStudyBand(0.5, 6)).toBe(3);
+    expect(quantizeStudyBand(0.5, 7)).toBe(3);
+    expect(quantizeStudyBand(0.999, 8)).toBe(7);
+  });
+
+  it("cleans tiny islands in eight-value studies", () => {
+    const graph = buildTriangleGraph(createCoplanarNeighborFan());
+    const input: BandCleanupInput = {
+      bands: new Int8Array([4, 3, 3, 3]),
+      locked: new Uint8Array(4),
+      lowConfidence: new Uint8Array([1, 0, 0, 0]),
+      stepCount: 8,
+    };
+
+    expect([...cleanupBandIslands(graph, input)]).toEqual([3, 3, 3, 3]);
   });
 
   it("writes cleaned per-triangle bands as per-vertex geometry attributes", () => {

@@ -66,9 +66,18 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
   expect(layout.viewport!.bottom).toBeGreaterThan(layout.viewport!.top);
 }
 
-async function selectValueMode(valueModeControl: Locator, label: "Shaded" | "3-Step" | "5-Step"): Promise<void> {
-  await valueModeControl.locator("label").filter({ hasText: label }).click();
-  await expect(valueModeControl.getByRole("radio", { name: label })).toBeChecked();
+async function selectRenderStyle(
+  valueStudyControl: Locator,
+  label: "Smooth" | "Stepped",
+): Promise<void> {
+  await valueStudyControl.getByRole("radio", { name: label }).click();
+  await expect(valueStudyControl.getByRole("radio", { name: label })).toBeChecked();
+}
+
+async function selectValueCount(valueStudyControl: Locator, count: 3 | 4 | 5 | 6 | 7 | 8): Promise<void> {
+  const select = valueStudyControl.getByRole("combobox", { name: "Values" });
+  await select.selectOption(String(count));
+  await expect(select).toHaveValue(String(count));
 }
 
 test.describe("STL viewer", () => {
@@ -93,24 +102,26 @@ test.describe("STL viewer", () => {
     await page.getByTestId("reset-model-orientation-button").click();
     await expect(page.getByText("1. X -90°")).toBeVisible();
 
-    const desktopValueMode = page.getByTestId("value-mode-control");
-    await selectValueMode(desktopValueMode, "3-Step");
+    const desktopValueStudy = page.getByTestId("value-study-control");
+    await selectRenderStyle(desktopValueStudy, "Stepped");
+    await selectValueCount(desktopValueStudy, 3);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
     await page.getByRole("slider", { name: "Shadow Value" }).fill("30");
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
 
-    await page.getByTestId("desktop-zenithal-study-checkbox").click();
-    await expect(page.getByTestId("desktop-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
+    const desktopLightingMode = page.getByTestId("desktop-lighting-mode-control");
+    await desktopLightingMode.getByRole("radio", { name: "Classic Top" }).click();
+    await expect(desktopLightingMode.getByRole("radio", { name: "Classic Top" })).toBeChecked();
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeDisabled();
     await expect(page.getByTestId("light-elevation-slider").first()).toBeDisabled();
-    await page.getByTestId("desktop-zenithal-study-checkbox").click();
+    await desktopLightingMode.getByRole("radio", { name: "Bust / Directional" }).click();
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
 
-    await selectValueMode(desktopValueMode, "5-Step");
+    await selectValueCount(desktopValueStudy, 5);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
-    await selectValueMode(desktopValueMode, "Shaded");
+    await selectRenderStyle(desktopValueStudy, "Smooth");
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
 
@@ -142,14 +153,16 @@ test.describe("STL viewer", () => {
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
 
-    const desktopValueMode = page.getByTestId("value-mode-control");
-    await selectValueMode(desktopValueMode, "3-Step");
-    await expectCanvasToRender(page);
-    await expectDesktopWorkbenchLayout(page);
-    await selectValueMode(desktopValueMode, "5-Step");
-    await expectCanvasToRender(page);
-    await expectDesktopWorkbenchLayout(page);
-    await selectValueMode(desktopValueMode, "Shaded");
+    const desktopValueStudy = page.getByTestId("value-study-control");
+    await selectRenderStyle(desktopValueStudy, "Stepped");
+    for (const count of [3, 4, 5, 6, 7, 8] as const) {
+      await selectValueCount(desktopValueStudy, count);
+      await expect(page.getByText("1. X -90°")).toBeVisible();
+      await expectCanvasToRender(page);
+      await expectDesktopWorkbenchLayout(page);
+      await expect(page.getByTestId("desktop-value-ramp-preview").locator("span")).toHaveCount(count);
+    }
+    await selectRenderStyle(desktopValueStudy, "Smooth");
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
   });
@@ -213,8 +226,9 @@ test.describe("STL viewer", () => {
     await expect(page.locator(".mobile-sheet")).toBeVisible();
 
     await page.getByRole("tab", { name: "Light" }).click();
-    await page.getByTestId("mobile-zenithal-study-checkbox").click();
-    await expect(page.getByTestId("mobile-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
+    const mobileLightingMode = page.getByTestId("mobile-lighting-mode-control");
+    await mobileLightingMode.getByRole("radio", { name: "Classic Top" }).click();
+    await expect(mobileLightingMode.getByRole("radio", { name: "Classic Top" })).toBeChecked();
     await expect(page.locator(".mobile-sheet").getByTestId("light-azimuth-slider")).toBeDisabled();
     await expect(page.locator(".mobile-sheet").getByTestId("light-elevation-slider")).toBeDisabled();
     const lightLayout = await page.evaluate(() => {
@@ -245,16 +259,17 @@ test.describe("STL viewer", () => {
     expect(lightLayout.primary!.bottom).toBeLessThanOrEqual(lightLayout.sheetBody!.bottom);
 
     await page.getByRole("tab", { name: "View" }).click();
-    await expect(page.getByTestId("mobile-value-mode-control")).toBeVisible();
-    const mobileValueMode = page.getByTestId("mobile-value-mode-control");
-    await selectValueMode(mobileValueMode, "3-Step");
+    await expect(page.getByTestId("mobile-value-study-control")).toBeVisible();
+    const mobileValueStudy = page.getByTestId("mobile-value-study-control");
+    await selectRenderStyle(mobileValueStudy, "Stepped");
+    await selectValueCount(mobileValueStudy, 3);
     await expectCanvasToRender(page);
     await expect(page.getByTestId("mobile-value-ramp-control")).toBeVisible();
     await page.getByTestId("mobile-shadow-value-slider").fill("26");
     await expect(page.getByTestId("mobile-shadow-value-slider")).toHaveValue("26");
-    await selectValueMode(mobileValueMode, "5-Step");
+    await selectValueCount(mobileValueStudy, 8);
     await expectCanvasToRender(page);
-    await selectValueMode(mobileValueMode, "Shaded");
+    await selectRenderStyle(mobileValueStudy, "Smooth");
     await expectCanvasToRender(page);
 
     const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
@@ -265,7 +280,10 @@ test.describe("STL viewer", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await page.getByRole("tab", { name: "Light" }).click();
-    await page.getByTestId("mobile-zenithal-study-checkbox").click();
+    await page
+      .getByTestId("mobile-lighting-mode-control")
+      .getByRole("radio", { name: "Classic Top" })
+      .click();
 
     const layout = await page.evaluate(() => {
       const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();

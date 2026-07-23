@@ -1,6 +1,10 @@
 import type { Box3, BufferGeometry, Vector3 } from "three";
 
-export type ValueMode = "shaded" | "three-step" | "five-step";
+export type ValueRenderStyle = "smooth" | "stepped";
+
+export type ValueStepCount = 3 | 4 | 5 | 6 | 7 | 8;
+
+export type LightingMode = "directional" | "classic-top";
 
 export type ActiveTab = "light" | "model" | "view";
 
@@ -71,26 +75,29 @@ export type LightPreset = {
   id: string;
   name: string;
   light: LightState;
-  valueMode: ValueMode;
+  renderStyle: ValueRenderStyle;
+  valueStepCount: ValueStepCount;
   valueRamp: ValueRampState;
-  zenithalStudy: boolean;
+  lightingMode: LightingMode;
 };
 
 export type PersistedViewerState = {
-  version: 3;
+  version: 4;
   light: LightState;
-  valueMode: ValueMode;
+  renderStyle: ValueRenderStyle;
+  valueStepCount: ValueStepCount;
   valueRamp: ValueRampState;
-  zenithalStudy: boolean;
+  lightingMode: LightingMode;
   floor: FloorState;
   presets: LightPreset[];
 };
 
 export type AppState = {
   light: LightState;
-  valueMode: ValueMode;
+  renderStyle: ValueRenderStyle;
+  valueStepCount: ValueStepCount;
   valueRamp: ValueRampState;
-  zenithalStudy: boolean;
+  lightingMode: LightingMode;
   floor: FloorState;
   activeTab: ActiveTab;
   model: LoadedModel | null;
@@ -103,9 +110,11 @@ export type AppAction =
   | { type: "set-light"; patch: Partial<LightState> }
   | { type: "reset-light" }
   | { type: "toggle-lock" }
-  | { type: "set-value-mode"; valueMode: ValueMode }
+  | { type: "set-render-style"; renderStyle: ValueRenderStyle }
+  | { type: "set-value-step-count"; valueStepCount: ValueStepCount }
   | { type: "set-value-ramp"; patch: Partial<ValueRampState> }
-  | { type: "set-zenithal-study"; zenithalStudy: boolean }
+  | { type: "set-lighting-mode"; lightingMode: LightingMode }
+  | { type: "apply-light-setup"; setupId: string }
   | { type: "set-floor"; patch: Partial<FloorState> }
   | { type: "set-active-tab"; activeTab: ActiveTab }
   | { type: "load-start"; requestId: number }

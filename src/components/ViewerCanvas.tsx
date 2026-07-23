@@ -1,12 +1,12 @@
 import { CameraControls, CameraControlsImpl } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type CameraControlsType from "camera-controls";
 import { Box3, Color, PCFShadowMap, Vector3 } from "three";
 import { Floor } from "./Floor";
 import { SceneLighting } from "./SceneLighting";
-import { StlModel } from "./StlModel";
+import { StlModel, type BandProcessingStatus } from "./StlModel";
 import type { AppState } from "../types";
 
 export type ViewerCameraApi = {
@@ -24,6 +24,7 @@ const DEFAULT_POSITION = new Vector3(4.2, 2.8, 5.2);
 
 export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(function ViewerCanvas({ state }, ref) {
   const controlsRef = useRef<CameraControlsType | null>(null);
+  const [bandStatus, setBandStatus] = useState<BandProcessingStatus>("idle");
 
   useImperativeHandle(
     ref,
@@ -54,6 +55,21 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
 
   return (
     <div className="viewer-shell" data-testid="viewer-shell">
+      {bandStatus === "updating" && (
+        <div className="band-status" role="status" aria-live="polite">
+          Updating value bands…
+        </div>
+      )}
+      {bandStatus === "fast" && (
+        <div className="band-status band-status--fast" role="status" aria-live="polite">
+          Fast GPU bands
+        </div>
+      )}
+      {bandStatus === "error" && (
+        <div className="band-status band-status--error" role="status" aria-live="polite">
+          Band cleanup unavailable · GPU preview active
+        </div>
+      )}
       <Canvas
         shadows="soft"
         dpr={[1, 2]}
@@ -66,14 +82,20 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
         }}
       >
         <CameraRig controlsRef={controlsRef} fittedBounds={state.model?.fit.fittedBounds ?? null} />
-        <SceneLighting light={state.light} modelFit={state.model?.fit ?? null} />
+        <SceneLighting
+          light={state.light}
+          lightingMode={state.lightingMode}
+          modelFit={state.model?.fit ?? null}
+        />
         <Floor floor={state.floor} modelFit={state.model?.fit ?? null} />
         <StlModel
           model={state.model}
           light={state.light}
-          valueMode={state.valueMode}
+          renderStyle={state.renderStyle}
+          valueStepCount={state.valueStepCount}
           valueRamp={state.valueRamp}
-          zenithalStudy={state.zenithalStudy}
+          lightingMode={state.lightingMode}
+          onBandStatusChange={setBandStatus}
         />
         {!state.model && <EmptyStudyForm />}
       </Canvas>

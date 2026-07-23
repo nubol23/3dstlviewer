@@ -14,7 +14,15 @@ const LOAD_ERROR_VISIBLE_MS = 5000;
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
-  const { floor, light, presets, valueMode, valueRamp, zenithalStudy } = state;
+  const {
+    floor,
+    light,
+    lightingMode,
+    presets,
+    renderStyle,
+    valueRamp,
+    valueStepCount,
+  } = state;
   const cameraApiRef = useRef<ViewerCameraApi | null>(null);
   const loadRequestIdRef = useRef(0);
   const previousSourceGeometryRef = useRef<BufferGeometry | null>(null);
@@ -91,8 +99,16 @@ export default function App() {
   }, [state.model]);
 
   useEffect(() => {
-    writePersistedState({ floor, light, presets, valueMode, valueRamp, zenithalStudy });
-  }, [floor, light, presets, valueMode, valueRamp, zenithalStudy]);
+    writePersistedState({
+      floor,
+      light,
+      lightingMode,
+      presets,
+      renderStyle,
+      valueRamp,
+      valueStepCount,
+    });
+  }, [floor, light, lightingMode, presets, renderStyle, valueRamp, valueStepCount]);
 
   useEffect(() => {
     const currentSourceGeometry = state.model?.sourceGeometry ?? null;

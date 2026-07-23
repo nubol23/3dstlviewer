@@ -3,26 +3,35 @@ import type {
   AppAction,
   AppState,
   LoadedModel,
+  LightingMode,
   OrientationAxis,
   OrientationTurnOperation,
   ValueRampState,
+  ValueRenderStyle,
+  ValueStepCount,
 } from "../types";
 import { Box, FolderOpen, RotateCcw, RotateCw, Lock, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
-import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Toggle from "@radix-ui/react-toggle";
-import type { ChangeEvent, Dispatch, ReactNode } from "react";
+import type { ChangeEvent, CSSProperties, Dispatch, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
 import { IconButton } from "./IconButton";
 import { SunDomeControl } from "./SunDomeControl";
 import { createValueRampColors } from "../lib/valueRamp";
+import { LIGHT_SETUPS } from "../state";
 
-const VALUE_OPTIONS = [
-  { value: "shaded", label: "Shaded" },
-  { value: "three-step", label: "3-Step" },
-  { value: "five-step", label: "5-Step" },
+const RENDER_STYLE_OPTIONS = [
+  { value: "smooth", label: "Smooth" },
+  { value: "stepped", label: "Stepped" },
 ] as const;
+
+const LIGHTING_MODE_OPTIONS = [
+  { value: "directional", label: "Bust / Directional" },
+  { value: "classic-top", label: "Classic Top" },
+] as const;
+
+const VALUE_STEP_COUNTS: readonly ValueStepCount[] = [3, 4, 5, 6, 7, 8];
 
 type AppShellProps = {
   state: AppState;
@@ -167,24 +176,43 @@ function FileInputControl({
 
 function ValueRampControl({
   valueRamp,
+  renderStyle,
+  valueStepCount,
   onChange,
   testIdPrefix,
 }: {
   valueRamp: ValueRampState;
+  renderStyle: ValueRenderStyle;
+  valueStepCount: ValueStepCount;
   onChange: (patch: Partial<ValueRampState>) => void;
   testIdPrefix: string;
 }) {
   const previewColors = useMemo(
-    () => createValueRampColors(valueRamp, 5),
-    [valueRamp],
+    () => createValueRampColors(valueRamp, renderStyle === "smooth" ? 8 : valueStepCount),
+    [renderStyle, valueRamp, valueStepCount],
   );
 
   return (
     <div className="value-ramp-control" data-testid={`${testIdPrefix}-value-ramp-control`}>
-      <div className="value-ramp-preview" aria-hidden="true">
-        {previewColors.map((color, index) => (
-          <span key={`${color}-${index}`} style={{ backgroundColor: color }} />
-        ))}
+      <div
+        className={`value-ramp-preview${renderStyle === "smooth" ? " is-smooth" : ""}`}
+        aria-label={
+          renderStyle === "smooth"
+            ? "Smooth value ramp preview"
+            : `${valueStepCount} value ramp preview`
+        }
+        data-testid={`${testIdPrefix}-value-ramp-preview`}
+        style={
+          {
+            "--value-count": previewColors.length,
+            "--value-ramp-gradient": `linear-gradient(90deg, ${previewColors.join(", ")})`,
+          } as CSSProperties
+        }
+      >
+        {renderStyle === "stepped" &&
+          previewColors.map((color, index) => (
+            <span key={`${color}-${index}`} style={{ backgroundColor: color }} />
+          ))}
       </div>
       <RangeControl
         label="Shadow Value"
@@ -220,30 +248,107 @@ function ValueRampControl({
   );
 }
 
-function ZenithalStudyControl({
-  checked,
-  onChange,
+function ValueStudyControl({
+  renderStyle,
+  valueStepCount,
+  onRenderStyleChange,
+  onValueStepCountChange,
   testId,
 }: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
+  renderStyle: ValueRenderStyle;
+  valueStepCount: ValueStepCount;
+  onRenderStyleChange: (renderStyle: ValueRenderStyle) => void;
+  onValueStepCountChange: (valueStepCount: ValueStepCount) => void;
   testId: string;
 }) {
-  const labelId = useId();
-
   return (
-    <div className="checkbox-control">
-      <Switch.Root
-        className="checkbox-control__switch"
-        checked={checked}
-        onCheckedChange={onChange}
-        data-testid={testId}
-        aria-labelledby={labelId}
-      >
-        <Switch.Thumb className="checkbox-control__thumb" />
-      </Switch.Root>
-      <span id={labelId}>Zenithal Study</span>
+    <div className="value-study-control" data-testid={testId}>
+      <SegmentedControl
+        options={RENDER_STYLE_OPTIONS}
+        value={renderStyle}
+        onChange={onRenderStyleChange}
+        ariaLabel="Value rendering"
+        name={`${testId}-render-style`}
+      />
+      <label className="value-count-control">
+        <span>Values</span>
+        <select
+          aria-label="Values"
+          data-testid={`${testId}-value-count`}
+          value={valueStepCount}
+          disabled={renderStyle === "smooth"}
+          onChange={(event) => onValueStepCountChange(Number(event.target.value) as ValueStepCount)}
+        >
+          {VALUE_STEP_COUNTS.map((count) => (
+            <option key={count} value={count}>
+              {count} values
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
+  );
+}
+
+function LightingModeControl({
+  lightingMode,
+  onChange,
+  disabled,
+  name,
+  testId,
+}: {
+  lightingMode: LightingMode;
+  onChange: (lightingMode: LightingMode) => void;
+  disabled: boolean;
+  name: string;
+  testId: string;
+}) {
+  return (
+    <SegmentedControl
+      options={LIGHTING_MODE_OPTIONS}
+      value={lightingMode}
+      onChange={onChange}
+      ariaLabel="Lighting model"
+      disabled={disabled}
+      name={name}
+      testId={testId}
+    />
+  );
+}
+
+function LightSetupControl({
+  disabled,
+  onApply,
+  testId,
+}: {
+  disabled: boolean;
+  onApply: (setupId: string) => void;
+  testId: string;
+}) {
+  return (
+    <label className="light-setup-control">
+      <span>Apply Lighting Setup</span>
+      <select
+        aria-label="Apply Lighting Setup"
+        data-testid={testId}
+        disabled={disabled}
+        value=""
+        onChange={(event) => {
+          if (event.target.value) {
+            onApply(event.target.value);
+          }
+        }}
+      >
+        <option value="" disabled>
+          Choose setup…
+        </option>
+        {LIGHT_SETUPS.map((setup) => (
+          <option key={setup.id} value={setup.id}>
+            {setup.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -298,16 +403,24 @@ export function AppShell({
     dispatch({ type: "set-floor", patch });
   };
 
-  const setValueMode = (valueMode: AppState["valueMode"]) => {
-    dispatch({ type: "set-value-mode", valueMode });
+  const setRenderStyle = (renderStyle: AppState["renderStyle"]) => {
+    dispatch({ type: "set-render-style", renderStyle });
+  };
+
+  const setValueStepCount = (valueStepCount: AppState["valueStepCount"]) => {
+    dispatch({ type: "set-value-step-count", valueStepCount });
   };
 
   const setValueRamp = (patch: Partial<ValueRampState>) => {
     dispatch({ type: "set-value-ramp", patch });
   };
 
-  const setZenithalStudy = (zenithalStudy: boolean) => {
-    dispatch({ type: "set-zenithal-study", zenithalStudy });
+  const setLightingMode = (lightingMode: LightingMode) => {
+    dispatch({ type: "set-lighting-mode", lightingMode });
+  };
+
+  const applyLightSetup = (setupId: string) => {
+    dispatch({ type: "apply-light-setup", setupId });
   };
 
   const loadPreset = (presetId: string) => {
@@ -349,12 +462,12 @@ export function AppShell({
             </span>
             <span className="icon-btn__label">Lock Light</span>
           </Toggle.Root>
-          <SegmentedControl
-            options={VALUE_OPTIONS}
-            value={state.valueMode}
-            onChange={setValueMode}
-            name="desktop-value-mode"
-            testId="value-mode-control"
+          <ValueStudyControl
+            renderStyle={state.renderStyle}
+            valueStepCount={state.valueStepCount}
+            onRenderStyleChange={setRenderStyle}
+            onValueStepCountChange={setValueStepCount}
+            testId="value-study-control"
           />
         </div>
       </header>
@@ -428,7 +541,16 @@ export function AppShell({
             <div className="panel-section__header">
               <h3>Value Ramp</h3>
             </div>
-            <ValueRampControl valueRamp={state.valueRamp} onChange={setValueRamp} testIdPrefix="desktop" />
+            <ValueRampControl
+              valueRamp={state.valueRamp}
+              renderStyle={state.renderStyle}
+              valueStepCount={state.valueStepCount}
+              onChange={setValueRamp}
+              testIdPrefix="desktop"
+            />
+            <p className="control-hint">
+              3–5 values simplify major light masses; 6–8 reveal finer transitions.
+            </p>
           </section>
 
           <section className="panel-section">
@@ -472,7 +594,9 @@ export function AppShell({
                   title={preset.name}
                 >
                   <span>{preset.name}</span>
-                  <span>{preset.valueMode}</span>
+                  <span>
+                    {preset.renderStyle === "smooth" ? "smooth" : `${preset.valueStepCount} values`}
+                  </span>
                 </button>
               ))}
             </div>
@@ -491,16 +615,23 @@ export function AppShell({
                 Reset Light
               </button>
             </div>
-            <ZenithalStudyControl
-              checked={state.zenithalStudy}
-              onChange={setZenithalStudy}
-              testId="desktop-zenithal-study-checkbox"
+            <LightingModeControl
+              lightingMode={state.lightingMode}
+              onChange={setLightingMode}
+              disabled={lightLocked}
+              name="desktop-lighting-mode"
+              testId="desktop-lighting-mode-control"
+            />
+            <LightSetupControl
+              disabled={lightLocked}
+              onApply={applyLightSetup}
+              testId="desktop-light-setup"
             />
             <SunDomeControl
               light={state.light}
               onChange={handleLightChange}
               disabled={lightLocked}
-              zenithalStudy={state.zenithalStudy}
+              classicTop={state.lightingMode === "classic-top"}
             />
           </section>
         </aside>
@@ -529,16 +660,23 @@ export function AppShell({
         <div className="mobile-sheet__body" ref={mobileSheetBodyRef}>
           <Tabs.Content value="light">
             <section className="panel-section">
-              <ZenithalStudyControl
-                checked={state.zenithalStudy}
-                onChange={setZenithalStudy}
-                testId="mobile-zenithal-study-checkbox"
+              <LightingModeControl
+                lightingMode={state.lightingMode}
+                onChange={setLightingMode}
+                disabled={lightLocked}
+                name="mobile-lighting-mode"
+                testId="mobile-lighting-mode-control"
               />
               <SunDomeControl
                 light={state.light}
                 onChange={handleLightChange}
                 disabled={lightLocked}
-                zenithalStudy={state.zenithalStudy}
+                classicTop={state.lightingMode === "classic-top"}
+              />
+              <LightSetupControl
+                disabled={lightLocked}
+                onApply={applyLightSetup}
+                testId="mobile-light-setup"
               />
             </section>
           </Tabs.Content>
@@ -588,7 +726,11 @@ export function AppShell({
                     title={preset.name}
                   >
                     <span>{preset.name}</span>
-                    <span>{preset.valueMode}</span>
+                    <span>
+                      {preset.renderStyle === "smooth"
+                        ? "smooth"
+                        : `${preset.valueStepCount} values`}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -598,14 +740,23 @@ export function AppShell({
             <div className="mobile-sheet__stack">
               <section className="panel-section">
                 <h3>View</h3>
-                <SegmentedControl
-                  options={VALUE_OPTIONS}
-                  value={state.valueMode}
-                  onChange={setValueMode}
-                  name="mobile-sheet-value-mode"
-                  testId="mobile-value-mode-control"
+                <ValueStudyControl
+                  renderStyle={state.renderStyle}
+                  valueStepCount={state.valueStepCount}
+                  onRenderStyleChange={setRenderStyle}
+                  onValueStepCountChange={setValueStepCount}
+                  testId="mobile-value-study-control"
                 />
-                <ValueRampControl valueRamp={state.valueRamp} onChange={setValueRamp} testIdPrefix="mobile" />
+                <ValueRampControl
+                  valueRamp={state.valueRamp}
+                  renderStyle={state.renderStyle}
+                  valueStepCount={state.valueStepCount}
+                  onChange={setValueRamp}
+                  testIdPrefix="mobile"
+                />
+                <p className="control-hint">
+                  3–5 values simplify major light masses; 6–8 reveal finer transitions.
+                </p>
               </section>
               <section className="panel-section">
                 <div className="panel-section__header">

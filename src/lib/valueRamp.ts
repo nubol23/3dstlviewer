@@ -2,6 +2,7 @@ import chroma from "chroma-js";
 import { z } from "zod";
 
 import type { ValueRampState } from "../types";
+import { assertValueStepCount } from "./valueMode";
 
 export const DEFAULT_VALUE_RAMP: ValueRampState = {
   shadowLightness: 18,
@@ -10,8 +11,6 @@ export const DEFAULT_VALUE_RAMP: ValueRampState = {
 };
 
 export const VALUE_RAMP_MIN_CONTRAST = 20;
-
-type RampStepCount = 3 | 5;
 
 function parseSchema<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -66,24 +65,20 @@ const VALUE_RAMP_STATE_SCHEMA: z.ZodType<ValueRampState> = VALUE_RAMP_INPUT_SCHE
   }),
 );
 
-const RAMP_STEP_COUNT_SCHEMA = z.literal([3, 5], {
-  error: (issue) => `Unsupported value ramp step count: ${String(issue.input)}`,
-});
-
 export function assertValueRampState(value: unknown): ValueRampState {
   return parseSchema(VALUE_RAMP_STATE_SCHEMA, value);
 }
 
-export function createValueRampColors(valueRamp: ValueRampState, stepCount: RampStepCount): string[] {
+export function createValueRampColors(valueRamp: ValueRampState, stepCount: number): string[] {
   const ramp = assertValueRampState(valueRamp);
-  const steps = parseSchema(RAMP_STEP_COUNT_SCHEMA, stepCount);
+  assertValueStepCount(stepCount);
   const colors = chroma
     .scale([
       chroma.lch(ramp.shadowLightness, 0, 0),
       chroma.lch(ramp.highlightLightness, 0, 0),
     ])
     .mode("lch")
-    .colors(steps);
+    .colors(stepCount);
 
   return colors.map((color) => chroma(color).hex());
 }

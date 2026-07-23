@@ -7,21 +7,16 @@ import {
 } from "./valueRamp";
 
 describe("value ramp", () => {
-  it("creates exactly three grayscale ramp outputs for three-step mode", () => {
-    const colors = createValueRampColors(DEFAULT_VALUE_RAMP, 3);
+  it.each([3, 4, 5, 6, 7, 8] as const)(
+    "creates exactly %i distinct grayscale ramp outputs",
+    (stepCount) => {
+      const colors = createValueRampColors(DEFAULT_VALUE_RAMP, stepCount);
 
-    expect(colors).toHaveLength(3);
-    expect(new Set(colors).size).toBe(3);
-    colors.forEach((color) => expect(color).toMatch(/^#[0-9a-f]{6}$/));
-  });
-
-  it("creates exactly five grayscale ramp outputs for five-step mode", () => {
-    const colors = createValueRampColors(DEFAULT_VALUE_RAMP, 5);
-
-    expect(colors).toHaveLength(5);
-    expect(new Set(colors).size).toBe(5);
-    colors.forEach((color) => expect(color).toMatch(/^#[0-9a-f]{6}$/));
-  });
+      expect(colors).toHaveLength(stepCount);
+      expect(new Set(colors).size).toBe(stepCount);
+      colors.forEach((color) => expect(color).toMatch(/^#[0-9a-f]{6}$/));
+    },
+  );
 
   it("rejects invalid ramp payloads", () => {
     expect(() => assertValueRampState({ ...DEFAULT_VALUE_RAMP, shadowLightness: Number.NaN })).toThrow(

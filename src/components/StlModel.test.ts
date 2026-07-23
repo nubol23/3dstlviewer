@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
-import { act, createElement } from "react";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Box3, type BufferGeometry, Vector3 } from "three";
 
@@ -9,25 +9,41 @@ import { createCubeGeometry } from "../test/fixtures";
 
 const valueBandCleanup = vi.hoisted(() => ({
   applyStudyBandsToGeometry: vi.fn(),
-  computeCleanStudyBands: vi.fn(),
+  createStudyBandComputationSettings: vi.fn(() => ({ settings: true })),
   ensureStudyBandAttribute: vi.fn(),
   resetStudyBandAttribute: vi.fn(),
 }));
 
-vi.mock("../lib/valueBandCleanup", () => valueBandCleanup);
-
-vi.mock("./StudyMaterial", () => ({
-  StudyMaterial: () => null,
+const workerClient = vi.hoisted(() => ({
+  compute: vi.fn(),
+  dispose: vi.fn(),
 }));
+const valueBandWorkerClientConstructor = vi.hoisted(() =>
+  vi.fn(function ValueBandWorkerClient() {
+    return workerClient;
+  }),
+);
 
-import { shouldCastPhysicalShadow, shouldComputeCleanStudyBands, StlModel } from "./StlModel";
+vi.mock("../lib/valueBandCleanup", () => valueBandCleanup);
+vi.mock("../lib/valueBandWorkerClient", () => ({
+  BandRequestSupersededError: class BandRequestSupersededError extends Error {},
+  ValueBandWorkerClient: valueBandWorkerClientConstructor,
+}));
+vi.mock("./StudyMaterial", () => ({ StudyMaterial: () => null }));
+
+import {
+  CLEAN_BAND_TRIANGLE_LIMIT,
+  shouldCastPhysicalShadow,
+  shouldUseCleanBandWorker,
+  StlModel,
+} from "./StlModel";
 
 const light: LightState = {
   azimuthDeg: 35,
   elevationDeg: 45,
   distance: 5,
   intensity: 1.2,
-  bounceStrength: 0.35,
+  bounceStrength: 0.16,
   shadowSoftness: 0.5,
   locked: false,
 };
@@ -38,7 +54,10 @@ const valueRamp: ValueRampState = {
   bandBias: 0.1,
 };
 
-function createModel(geometry: BufferGeometry = createCubeGeometry()): LoadedModel {
+function createModel(
+  triangleCount = 12,
+  geometry: BufferGeometry = createCubeGeometry(),
+): LoadedModel {
   const center = new Vector3(0, 0, 0);
   const size = new Vector3(1, 1, 1);
   const bounds = new Box3(
@@ -54,7 +73,7 @@ function createModel(geometry: BufferGeometry = createCubeGeometry()): LoadedMod
     metadata: {
       fileName: "test.stl",
       fileSize: 123,
-      triangleCount: 1,
+      triangleCount,
       loadedAt: 1,
     },
     fit: {
@@ -70,132 +89,167 @@ function createModel(geometry: BufferGeometry = createCubeGeometry()): LoadedMod
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
-describe("StlModel shadow policy", () => {
-  it("casts physical shadows in directional mode", () => {
-    expect(shouldCastPhysicalShadow(false)).toBe(true);
+describe("StlModel rendering policy", () => {
+  it("always casts physical shadows", () => {
+    expect(shouldCastPhysicalShadow()).toBe(true);
   });
 
-  it("does not cast physical ground shadows in zenithal mode", () => {
-    expect(shouldCastPhysicalShadow(true)).toBe(false);
-  });
-});
-
-describe("StlModel value-band cleanup", () => {
-  it.each([
-    ["shaded", false],
-    ["three-step", true],
-    ["five-step", true],
-  ] as const)("reports whether %s mode needs clean study bands", (valueMode, expected) => {
-    expect(shouldComputeCleanStudyBands(valueMode)).toBe(expected);
+  it("uses exact cleanup only for stepped models within the quality budget", () => {
+    expect(shouldUseCleanBandWorker("smooth", 10)).toBe(false);
+    expect(shouldUseCleanBandWorker("stepped", CLEAN_BAND_TRIANGLE_LIMIT)).toBe(true);
+    expect(shouldUseCleanBandWorker("stepped", CLEAN_BAND_TRIANGLE_LIMIT + 1)).toBe(false);
   });
 
-  it("resets study bands without scheduling cleanup in shaded mode", () => {
+  it("does not allocate study-band attributes in initial smooth mode", async () => {
     const model = createModel();
+    render(
+      createElement(StlModel, {
+        model,
+        light,
+        renderStyle: "smooth",
+        valueStepCount: 5,
+        valueRamp,
+        lightingMode: "directional",
+      }),
+    );
+
+    await waitFor(() => expect(workerClient.compute).not.toHaveBeenCalled());
+    expect(valueBandCleanup.resetStudyBandAttribute).not.toHaveBeenCalled();
+    expect(workerClient.compute).not.toHaveBeenCalled();
+  });
+
+  it("shows GPU bands immediately and applies sparse worker cleanup", async () => {
+    const model = createModel();
+    const bands = new Int8Array([-1, 2]);
+    const onBandStatusChange = vi.fn();
+    workerClient.compute.mockResolvedValue(bands);
 
     render(
       createElement(StlModel, {
         model,
         light,
-        valueMode: "shaded",
+        renderStyle: "stepped",
+        valueStepCount: 8,
         valueRamp,
-        zenithalStudy: false,
+        lightingMode: "classic-top",
+        onBandStatusChange,
       }),
     );
 
-    expect(valueBandCleanup.resetStudyBandAttribute).toHaveBeenCalledWith(model.geometry);
-    expect(valueBandCleanup.ensureStudyBandAttribute).not.toHaveBeenCalled();
-    expect(valueBandCleanup.computeCleanStudyBands).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(workerClient.compute).toHaveBeenCalled();
+    });
+    expect(valueBandCleanup.resetStudyBandAttribute).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(valueBandCleanup.applyStudyBandsToGeometry).toHaveBeenCalledWith(
+        model.geometry,
+        bands,
+      );
+      expect(onBandStatusChange).toHaveBeenCalledWith("clean");
+    });
   });
 
-  it("schedules clean band recomputation for quantized modes", async () => {
-    vi.useFakeTimers();
-    const model = createModel();
-    const bands = new Int8Array([0, 1]);
-    valueBandCleanup.computeCleanStudyBands.mockResolvedValue(bands);
-
-    render(
-      createElement(StlModel, {
-        model,
-        light,
-        valueMode: "three-step",
-        valueRamp,
-        zenithalStudy: true,
-      }),
-    );
-
-    expect(valueBandCleanup.ensureStudyBandAttribute).toHaveBeenCalledWith(model.geometry);
-    expect(valueBandCleanup.computeCleanStudyBands).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.runOnlyPendingTimers();
-      await Promise.resolve();
-    });
-
-    expect(valueBandCleanup.computeCleanStudyBands).toHaveBeenCalledWith({
-      geometry: model.geometry,
-      light,
-      lightTarget: model.fit.center,
-      valueMode: "three-step",
-      valueRamp: { bandBias: valueRamp.bandBias },
-      zenithalStudy: true,
-    });
-    expect(valueBandCleanup.applyStudyBandsToGeometry).toHaveBeenCalledWith(model.geometry, bands);
-  });
-
-  it("discards late band results after inputs change", async () => {
-    vi.useFakeTimers();
-    const model = createModel();
-    const staleBands = new Int8Array([0]);
-    const currentBands = new Int8Array([1]);
-    let resolveStaleBands!: (bands: Int8Array) => void;
-
-    valueBandCleanup.computeCleanStudyBands
-      .mockReturnValueOnce(new Promise<Int8Array>((resolve) => {
-        resolveStaleBands = resolve;
-      }))
-      .mockResolvedValueOnce(currentBands);
+  it("keeps high-poly stepped studies on the responsive GPU path", async () => {
+    const model = createModel(CLEAN_BAND_TRIANGLE_LIMIT + 1);
+    const onBandStatusChange = vi.fn();
 
     const { rerender } = render(
       createElement(StlModel, {
         model,
         light,
-        valueMode: "three-step",
+        renderStyle: "stepped",
+        valueStepCount: 8,
         valueRamp,
-        zenithalStudy: false,
+        lightingMode: "directional",
+        onBandStatusChange,
       }),
     );
 
-    await act(async () => {
-      vi.runOnlyPendingTimers();
-      await Promise.resolve();
+    await waitFor(() => {
+      expect(onBandStatusChange).toHaveBeenCalledWith("fast");
+    });
+
+    rerender(
+      createElement(StlModel, {
+        model,
+        light: { ...light, azimuthDeg: 120 },
+        renderStyle: "stepped",
+        valueStepCount: 8,
+        valueRamp,
+        lightingMode: "directional",
+        onBandStatusChange,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(onBandStatusChange).toHaveBeenCalledTimes(2);
+    });
+    expect(workerClient.compute).not.toHaveBeenCalled();
+    expect(valueBandCleanup.resetStudyBandAttribute).not.toHaveBeenCalled();
+    expect(valueBandCleanup.applyStudyBandsToGeometry).not.toHaveBeenCalled();
+  });
+
+  it("keeps GPU bands active when the cleanup worker cannot start", async () => {
+    const model = createModel();
+    const onBandStatusChange = vi.fn();
+    valueBandWorkerClientConstructor.mockImplementationOnce(() => {
+      throw new Error("Worker unavailable");
+    });
+
+    render(
+      createElement(StlModel, {
+        model,
+        light,
+        renderStyle: "stepped",
+        valueStepCount: 5,
+        valueRamp,
+        lightingMode: "directional",
+        onBandStatusChange,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(onBandStatusChange).toHaveBeenCalledWith("error");
+    });
+    expect(valueBandCleanup.resetStudyBandAttribute).not.toHaveBeenCalled();
+    expect(valueBandCleanup.applyStudyBandsToGeometry).not.toHaveBeenCalled();
+  });
+
+  it("clears an applied cleanup once when switching back to smooth", async () => {
+    const model = createModel();
+    workerClient.compute.mockResolvedValue(new Int8Array([-1, 2]));
+    const { rerender } = render(
+      createElement(StlModel, {
+        model,
+        light,
+        renderStyle: "stepped",
+        valueStepCount: 5,
+        valueRamp,
+        lightingMode: "directional",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(valueBandCleanup.applyStudyBandsToGeometry).toHaveBeenCalled();
     });
 
     rerender(
       createElement(StlModel, {
         model,
         light,
-        valueMode: "three-step",
-        valueRamp: { ...valueRamp, bandBias: -0.1 },
-        zenithalStudy: false,
+        renderStyle: "smooth",
+        valueStepCount: 5,
+        valueRamp,
+        lightingMode: "directional",
       }),
     );
 
-    await act(async () => {
-      resolveStaleBands(staleBands);
-      await Promise.resolve();
+    await waitFor(() => {
+      expect(valueBandCleanup.resetStudyBandAttribute).toHaveBeenCalledTimes(1);
+      expect(valueBandCleanup.resetStudyBandAttribute).toHaveBeenCalledWith(model.geometry);
     });
-
-    expect(valueBandCleanup.applyStudyBandsToGeometry).not.toHaveBeenCalledWith(model.geometry, staleBands);
-
-    await act(async () => {
-      vi.runOnlyPendingTimers();
-      await Promise.resolve();
-    });
-
-    expect(valueBandCleanup.applyStudyBandsToGeometry).toHaveBeenCalledWith(model.geometry, currentBands);
   });
 });
