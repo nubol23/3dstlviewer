@@ -499,7 +499,7 @@ input:disabled,
 
 .value-ramp-preview {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--value-count, 5), 1fr);
   height: 24px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -509,6 +509,65 @@ input:disabled,
 
 .value-ramp-preview span {
   min-width: 0;
+}
+
+.value-ramp-preview.is-smooth {
+  display: block;
+  background: var(--value-ramp-gradient);
+}
+
+.value-study-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.value-count-control,
+.light-setup-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.value-count-control select,
+.light-setup-control select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #151a20;
+  color: var(--text);
+  padding: 6px 28px 6px 9px;
+}
+
+.value-count-control select:focus-visible,
+.light-setup-control select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.value-count-control select:disabled,
+.light-setup-control select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.light-setup-control {
+  justify-content: space-between;
+}
+
+.light-setup-control select {
+  max-width: 170px;
+}
+
+.control-hint {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .preset-list {
@@ -617,8 +676,8 @@ input:disabled,
   cursor: not-allowed;
 }
 
-.sun-dome-panel.is-zenithal .sun-dome,
-.sun-dome-panel.is-zenithal .sun-dome__sliders--axes {
+.sun-dome-panel.is-classic-top .sun-dome,
+.sun-dome-panel.is-classic-top .sun-dome__sliders--axes {
   opacity: 0.45;
 }
 
@@ -736,6 +795,32 @@ input:disabled,
   height: 100%;
   min-height: 620px;
   overflow: hidden;
+}
+
+.band-status {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  border: 1px solid rgba(88, 213, 208, 0.42);
+  border-radius: 999px;
+  background: rgba(11, 15, 19, 0.86);
+  color: var(--text);
+  padding: 7px 11px;
+  font-size: 12px;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+.band-status--fast {
+  border-color: rgba(255, 181, 29, 0.48);
+  color: #ffe1a0;
+}
+
+.band-status--error {
+  border-color: rgba(255, 111, 106, 0.55);
+  color: #ffc0bd;
 }
 
 .viewer-shell canvas {
@@ -888,6 +973,24 @@ input:disabled,
 
   .mobile-sheet .value-ramp-preview {
     height: 20px;
+  }
+
+  .mobile-sheet .value-study-control {
+    align-items: stretch;
+    justify-content: space-between;
+  }
+
+  .mobile-sheet .value-study-control .segmented {
+    flex: 1;
+  }
+
+  .mobile-sheet .value-count-control {
+    min-height: 40px;
+  }
+
+  .mobile-sheet .value-count-control select,
+  .mobile-sheet .light-setup-control select {
+    min-height: 40px;
   }
 
   .toolbar__file {

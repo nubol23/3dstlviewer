@@ -2,7 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { useId } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Slider from "@radix-ui/react-slider";
-import type { ValueMode } from "../types";
 
 type RangeControlProps = {
   label: string;
@@ -88,30 +87,32 @@ export function RangeControl({
   );
 }
 
-type SegmentOption = {
-  value: ValueMode;
+type SegmentOption<T extends string> = {
+  value: T;
   label: string;
 };
 
-type SegmentedControlProps = {
-  options: readonly SegmentOption[];
-  value: ValueMode;
-  onChange: (next: ValueMode) => void;
+type SegmentedControlProps<T extends string> = {
+  options: readonly SegmentOption<T>[];
+  value: T;
+  onChange: (next: T) => void;
+  ariaLabel: string;
   disabled?: boolean;
   name?: string;
   idPrefix?: string;
   testId?: string;
 };
 
-export function SegmentedControl({
+export function SegmentedControl<T extends string>({
   options,
   value,
   onChange,
+  ariaLabel,
   disabled,
   name,
   idPrefix,
   testId,
-}: SegmentedControlProps) {
+}: SegmentedControlProps<T>) {
   const generatedName = useId();
   const radioName = name ?? `value-mode-${generatedName}`;
   const radioIdPrefix = idPrefix ?? `value-mode-option-${generatedName}`;
@@ -119,13 +120,13 @@ export function SegmentedControl({
   return (
     <RadioGroup.Root
       className="segmented"
-      aria-label="Value mode"
+      aria-label={ariaLabel}
       data-testid={testId}
       disabled={disabled}
       name={radioName}
       orientation="horizontal"
       value={value}
-      onValueChange={(nextValue) => onChange(nextValue as ValueMode)}
+      onValueChange={(nextValue) => onChange(nextValue as T)}
     >
       {options.map((option) => {
         const active = option.value === value;

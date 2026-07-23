@@ -7,11 +7,11 @@ type SunDomeControlProps = {
   light: LightState;
   onChange: (patch: Partial<LightState>) => void;
   disabled?: boolean;
-  zenithalStudy?: boolean;
+  classicTop?: boolean;
 };
 
 const MIN_ELEVATION = -78;
-const MAX_ELEVATION = 78;
+const MAX_ELEVATION = 90;
 const ELEVATION_RANGE = MAX_ELEVATION - MIN_ELEVATION;
 const AZIMUTH_DEAD_ZONE = 0.09;
 
@@ -68,11 +68,11 @@ export function domePointToLightDirection(
   };
 }
 
-export function SunDomeControl({ light, onChange, disabled = false, zenithalStudy = false }: SunDomeControlProps) {
+export function SunDomeControl({ light, onChange, disabled = false, classicTop = false }: SunDomeControlProps) {
   const domeRef = useRef<HTMLButtonElement | null>(null);
   const pointerActive = useRef(false);
   const readoutId = useId();
-  const directionDisabled = disabled || zenithalStudy;
+  const directionDisabled = disabled || classicTop;
 
   const spherePosition = useMemo(() => projectLightToDomePoint(light), [light]);
 
@@ -167,10 +167,10 @@ export function SunDomeControl({ light, onChange, disabled = false, zenithalStud
   const directionReadout = `Azimuth ${light.azimuthDeg.toFixed(0)} degrees, elevation ${light.elevationDeg.toFixed(0)} degrees`;
 
   return (
-    <section className={`sun-dome-panel${zenithalStudy ? " is-zenithal" : ""}`} aria-label="Lighting direction">
+    <section className={`sun-dome-panel${classicTop ? " is-classic-top" : ""}`} aria-label="Lighting direction">
       <div className="sun-dome__title">
         <span>Direction</span>
-        <span>{zenithalStudy ? "Zenithal" : `Az ${formatInt(light.azimuthDeg)} • El ${formatInt(light.elevationDeg)}`}</span>
+        <span>{classicTop ? "Overhead" : `Az ${formatInt(light.azimuthDeg)} • El ${formatInt(light.elevationDeg)}`}</span>
       </div>
       <div className="sun-dome-panel__primary">
         <button
@@ -226,7 +226,7 @@ export function SunDomeControl({ light, onChange, disabled = false, zenithalStud
       </div>
       <div className="sun-dome__sliders sun-dome__sliders--advanced">
         <RangeControl
-          label="Distance"
+          label="Shadow Range"
           value={light.distance}
           min={1}
           max={6}

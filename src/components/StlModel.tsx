@@ -1,35 +1,85 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { BufferGeometry } from "three";
+
 import {
   applyStudyBandsToGeometry,
-  computeCleanStudyBands,
-  ensureStudyBandAttribute,
+  createStudyBandComputationSettings,
   resetStudyBandAttribute,
 } from "../lib/valueBandCleanup";
-import type { LightState, LoadedModel, ValueMode, ValueRampState } from "../types";
+import {
+  BandRequestSupersededError,
+  ValueBandWorkerClient,
+} from "../lib/valueBandWorkerClient";
+import type {
+  LightingMode,
+  LightState,
+  LoadedModel,
+  ValueRampState,
+  ValueRenderStyle,
+  ValueStepCount,
+} from "../types";
 import { StudyMaterial } from "./StudyMaterial";
+
+export const CLEAN_BAND_TRIANGLE_LIMIT = 200_000;
+
+export type BandProcessingStatus = "idle" | "updating" | "clean" | "fast" | "error";
 
 type StlModelProps = {
   model: LoadedModel | null;
   light: LightState;
-  valueMode: ValueMode;
+  renderStyle: ValueRenderStyle;
+  valueStepCount: ValueStepCount;
   valueRamp: ValueRampState;
-  zenithalStudy: boolean;
+  lightingMode: LightingMode;
+  onBandStatusChange?: (status: BandProcessingStatus) => void;
 };
 
-export function shouldCastPhysicalShadow(zenithalStudy: boolean): boolean {
-  return !zenithalStudy;
+export function shouldCastPhysicalShadow(): boolean {
+  return true;
 }
 
-export function shouldComputeCleanStudyBands(valueMode: ValueMode): boolean {
-  return valueMode === "three-step" || valueMode === "five-step";
+export function shouldUseCleanBandWorker(
+  renderStyle: ValueRenderStyle,
+  triangleCount: number,
+): boolean {
+  return renderStyle === "stepped" && triangleCount <= CLEAN_BAND_TRIANGLE_LIMIT;
 }
 
-export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: StlModelProps) {
+export function StlModel({
+  model,
+  light,
+  renderStyle,
+  valueStepCount,
+  valueRamp,
+  lightingMode,
+  onBandStatusChange,
+}: StlModelProps) {
   const previousGeometryRef = useRef<BufferGeometry | null>(null);
+  const workerClientRef = useRef<{
+    geometry: BufferGeometry;
+    client: ValueBandWorkerClient;
+  } | null>(null);
+  const cleanBandsAppliedRef = useRef(false);
   const geometry = model?.geometry ?? null;
+  const triangleCount = model?.metadata.triangleCount ?? 0;
   const lightTarget = model?.fit.center ?? null;
-  const bandBias = valueRamp.bandBias;
+  const bandLight = useMemo<LightState>(
+    () => ({
+      azimuthDeg: light.azimuthDeg,
+      elevationDeg: light.elevationDeg,
+      distance: 1,
+      intensity: light.intensity,
+      bounceStrength: light.bounceStrength,
+      shadowSoftness: 0,
+      locked: false,
+    }),
+    [
+      light.azimuthDeg,
+      light.bounceStrength,
+      light.elevationDeg,
+      light.intensity,
+    ],
+  );
 
   useEffect(() => {
     const previousGeometry = previousGeometryRef.current;
@@ -37,43 +87,111 @@ export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: 
       previousGeometry.dispose();
     }
     previousGeometryRef.current = geometry;
+    cleanBandsAppliedRef.current = false;
+  }, [geometry]);
+
+  useEffect(() => {
+    return () => {
+      const workerRecord = workerClientRef.current;
+      if (workerRecord?.geometry === geometry) {
+        workerRecord.client.dispose();
+        workerClientRef.current = null;
+      }
+    };
   }, [geometry]);
 
   useEffect(() => {
     if (!geometry || !lightTarget) {
+      onBandStatusChange?.("idle");
       return;
     }
 
-    if (!shouldComputeCleanStudyBands(valueMode)) {
+    const clearAppliedCleanBands = () => {
+      if (!cleanBandsAppliedRef.current) {
+        return;
+      }
       resetStudyBandAttribute(geometry);
+      cleanBandsAppliedRef.current = false;
+    };
+
+    if (renderStyle === "smooth") {
+      clearAppliedCleanBands();
+      onBandStatusChange?.("idle");
       return;
     }
 
-    ensureStudyBandAttribute(geometry);
+    clearAppliedCleanBands();
+
+    if (!shouldUseCleanBandWorker(renderStyle, triangleCount)) {
+      onBandStatusChange?.("fast");
+      return;
+    }
+
+    let workerRecord = workerClientRef.current;
+    if (!workerRecord || workerRecord.geometry !== geometry) {
+      workerRecord?.client.dispose();
+      try {
+        workerRecord = {
+          geometry,
+          client: new ValueBandWorkerClient(geometry),
+        };
+      } catch {
+        workerClientRef.current = null;
+        onBandStatusChange?.("error");
+        return;
+      }
+      workerClientRef.current = workerRecord;
+    }
 
     let cancelled = false;
-    const timeoutId = setTimeout(() => {
-      void Promise.resolve(
-        computeCleanStudyBands({
-          geometry,
-          light,
-          lightTarget,
-          valueMode,
-          valueRamp: { bandBias },
-          zenithalStudy,
-        }),
-      ).then((bands) => {
-        if (!cancelled && bands) {
-          applyStudyBandsToGeometry(geometry, bands);
+    onBandStatusChange?.("updating");
+    const settings = createStudyBandComputationSettings({
+      light: bandLight,
+      lightTarget,
+      stepCount: valueStepCount,
+      valueRamp: { bandBias: valueRamp.bandBias },
+      lightingMode,
+    });
+
+    void workerRecord.client
+      .compute(settings)
+      .then((bands) => {
+        if (cancelled) {
+          return;
         }
+        applyStudyBandsToGeometry(geometry, bands);
+        cleanBandsAppliedRef.current = true;
+        onBandStatusChange?.("clean");
+      })
+      .catch((error: unknown) => {
+        if (
+          cancelled ||
+          error instanceof BandRequestSupersededError ||
+          (error instanceof Error && error.message === "Value band worker was disposed")
+        ) {
+          return;
+        }
+        if (workerClientRef.current?.client === workerRecord.client) {
+          workerRecord.client.dispose();
+          workerClientRef.current = null;
+        }
+        onBandStatusChange?.("error");
       });
-    }, 0);
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
     };
-  }, [geometry, light, lightTarget, valueMode, bandBias, zenithalStudy]);
+  }, [
+    geometry,
+    bandLight,
+    lightTarget,
+    lightingMode,
+    onBandStatusChange,
+    renderStyle,
+    triangleCount,
+    valueRamp.bandBias,
+    valueStepCount,
+  ]);
 
   if (!model) {
     return null;
@@ -83,7 +201,7 @@ export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: 
     <mesh
       key={model.id}
       geometry={model.geometry}
-      castShadow={shouldCastPhysicalShadow(zenithalStudy)}
+      castShadow={shouldCastPhysicalShadow()}
       receiveShadow
       data-testid="stl-model"
       userData={{
@@ -94,9 +212,10 @@ export function StlModel({ model, light, valueMode, valueRamp, zenithalStudy }: 
       <StudyMaterial
         light={light}
         lightTarget={model.fit.center}
-        valueMode={valueMode}
+        renderStyle={renderStyle}
+        valueStepCount={valueStepCount}
         valueRamp={valueRamp}
-        zenithalStudy={zenithalStudy}
+        lightingMode={lightingMode}
       />
     </mesh>
   );

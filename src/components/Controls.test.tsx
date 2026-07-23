@@ -7,9 +7,8 @@ import { domePointToLightDirection, projectLightToDomePoint, SunDomeControl } fr
 import { DEFAULT_LIGHT } from "../state";
 
 const valueOptions = [
-  { value: "shaded", label: "Shaded" },
-  { value: "three-step", label: "3-Step" },
-  { value: "five-step", label: "5-Step" },
+  { value: "smooth", label: "Smooth" },
+  { value: "stepped", label: "Stepped" },
 ] as const;
 
 describe("Controls accessibility", () => {
@@ -18,16 +17,17 @@ describe("Controls accessibility", () => {
     render(
       <SegmentedControl
         options={valueOptions}
-        value="three-step"
+        value="stepped"
         onChange={onChange}
         name="test-value-mode"
+        ariaLabel="Value rendering"
       />,
     );
 
-    expect(screen.getByRole("radiogroup", { name: "Value mode" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "3-Step" })).toBeChecked();
-    fireEvent.click(screen.getByRole("radio", { name: "5-Step" }));
-    expect(onChange).toHaveBeenCalledWith("five-step");
+    expect(screen.getByRole("radiogroup", { name: "Value rendering" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Stepped" })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "Smooth" }));
+    expect(onChange).toHaveBeenCalledWith("smooth");
   });
 
   it("computes range fill from min, max, and value", () => {
@@ -54,7 +54,7 @@ describe("Controls accessibility", () => {
     fireEvent.keyDown(pad, { key: "ArrowUp", shiftKey: true });
 
     expect(onChange).toHaveBeenNthCalledWith(1, { azimuthDeg: 320 });
-    expect(onChange).toHaveBeenNthCalledWith(2, { elevationDeg: 63 });
+    expect(onChange).toHaveBeenNthCalledWith(2, { elevationDeg: 65 });
   });
 
   it("uses a stable dome projection for pointer light direction", () => {
@@ -66,8 +66,8 @@ describe("Controls accessibility", () => {
     expect(roundTrip.azimuthDeg).toBeCloseTo(315);
     expect(roundTrip.elevationDeg).toBeCloseTo(48);
     expect(nearZenith.azimuthDeg).toBe(315);
-    expect(nearZenith.elevationDeg).toBeGreaterThan(77);
+    expect(nearZenith.elevationDeg).toBeGreaterThan(89);
     expect(lowerElevation.azimuthDeg).toBeCloseTo(0);
-    expect(lowerElevation.elevationDeg).toBeCloseTo(39);
+    expect(lowerElevation.elevationDeg).toBeCloseTo(48);
   });
 });

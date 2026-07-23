@@ -1,9 +1,15 @@
 import { BufferAttribute, BufferGeometry, Vector3 } from "three";
 
-import type { LightState, ValueMode, ValueRampState } from "../types";
+import type {
+  LightingMode,
+  LightState,
+  ValueRenderStyle,
+  ValueRampState,
+  ValueStepCount,
+} from "../types";
 import { MIN_TRIANGLE_AREA } from "./geometry";
-import { lightPoseFromState } from "./light";
-import { getValueModeDescriptor } from "./valueMode";
+import { lightPoseFromState, resolveStudyLight } from "./light";
+import { assertValueStepCount } from "./valueMode";
 
 export const STUDY_BAND_SENTINEL = -1;
 export const DEFAULT_HARD_NORMAL_THRESHOLD_DEG = 35;
@@ -12,24 +18,8 @@ export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.35;
 export const DEFAULT_COMPATIBLE_BAND_DISTANCE = 1;
 
 const RAD_TO_DEG = 180 / Math.PI;
-const ZENITHAL_RING_DIRECTIONS: ReadonlyArray<readonly [number, number, number]> = [
-  [0, 0.707107, 0.707107],
-  [0.353553, 0.707107, 0.612372],
-  [0.612372, 0.707107, 0.353553],
-  [0.707107, 0.707107, 0],
-  [0.612372, 0.707107, -0.353553],
-  [0.353553, 0.707107, -0.612372],
-  [0, 0.707107, -0.707107],
-  [-0.353553, 0.707107, -0.612372],
-  [-0.612372, 0.707107, -0.353553],
-  [-0.707107, 0.707107, 0],
-  [-0.612372, 0.707107, 0.353553],
-  [-0.353553, 0.707107, 0.612372],
-];
-
 type TriangleEdge = 0 | 1 | 2;
-type StepCount = 1 | 3 | 5;
-export type QuantizedStepCount = Exclude<StepCount, 1>;
+export type QuantizedStepCount = ValueStepCount;
 
 export type TriangleGraph = {
   triangleCount: number;
@@ -57,9 +47,10 @@ export type ComputeCleanStudyBandsInput = {
   geometry: BufferGeometry;
   light: LightState;
   lightTarget: Vector3;
-  valueMode: ValueMode;
+  renderStyle: ValueRenderStyle;
+  stepCount: ValueStepCount;
   valueRamp: Pick<ValueRampState, "bandBias">;
-  zenithalStudy: boolean;
+  lightingMode: LightingMode;
 };
 
 export type ValueBandCleanupOptions = {
@@ -67,6 +58,7 @@ export type ValueBandCleanupOptions = {
   maxTinyComponentTriangles?: number;
   lowConfidenceThreshold?: number;
   compatibleBandDistance?: number;
+  collectBlockedEdges?: boolean;
 };
 
 export type CleanedStudyBandResult = {
@@ -76,21 +68,6 @@ export type CleanedStudyBandResult = {
   lowConfidence: Uint8Array;
   cleanedBands: Int8Array;
   overrideBands: Int8Array;
-};
-
-type EdgeUse = {
-  triangle: number;
-  edge: TriangleEdge;
-  groupIndex: number;
-};
-
-type BandComponent = {
-  index: number;
-  band: number;
-  triangles: number[];
-  isLowConfidence: boolean;
-  isLocked: boolean;
-  hasOpenBoundary: boolean;
 };
 
 function failFastFinite(value: number, label: string): number {
@@ -159,10 +136,6 @@ function vertexKey(position: BufferAttribute, vertexIndex: number): string {
     canonicalCoordinate(position.getY(vertexIndex)),
     canonicalCoordinate(position.getZ(vertexIndex)),
   ].join(",");
-}
-
-function edgeKey(a: string, b: string): string {
-  return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
 function createGroupIndices(geometry: BufferGeometry, triangleCount: number): Int32Array {
@@ -253,9 +226,9 @@ function triangleVector(values: Float32Array, triangle: number, target: Vector3)
   return target.set(values[offset], values[offset + 1], values[offset + 2]);
 }
 
-function addNeighbor(neighbors: Int32Array, a: EdgeUse, b: EdgeUse): void {
-  neighbors[a.triangle * 3 + a.edge] = b.triangle;
-  neighbors[b.triangle * 3 + b.edge] = a.triangle;
+function addNeighbor(neighbors: Int32Array, edgeA: number, edgeB: number): void {
+  neighbors[edgeA] = Math.floor(edgeB / 3);
+  neighbors[edgeB] = Math.floor(edgeA / 3);
 }
 
 export function buildTriangleGraph(
@@ -268,74 +241,125 @@ export function buildTriangleGraph(
   const { normals, centroids } = computeTriangleFrames(position, triangleCount);
   const hardNormalThresholdDeg = normalizeHardNormalThreshold(options);
   const hardNormalCos = Math.cos((hardNormalThresholdDeg * Math.PI) / 180);
-  const edgeUses = new Map<string, EdgeUse[]>();
+  const vertexIds = new Int32Array(position.count);
+  const vertexIdByPosition = new Map<string, number>();
+  const edgeUses = new Map<number, number>();
+  const secondEdgeUses = new Int32Array(triangleCount * 3);
   const neighbors = new Int32Array(triangleCount * 3);
   const openEdges = new Uint8Array(triangleCount * 3);
   const blockedEdges: TriangleGraph["blockedEdges"] = [];
+  const collectBlockedEdges = options.collectBlockedEdges ?? false;
   const normalA = new Vector3();
   const normalB = new Vector3();
   neighbors.fill(STUDY_BAND_SENTINEL);
+  secondEdgeUses.fill(STUDY_BAND_SENTINEL);
+
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const key = vertexKey(position, vertex);
+    const existingId = vertexIdByPosition.get(key);
+    if (existingId !== undefined) {
+      vertexIds[vertex] = existingId;
+      continue;
+    }
+    const vertexId = vertexIdByPosition.size;
+    vertexIdByPosition.set(key, vertexId);
+    vertexIds[vertex] = vertexId;
+  }
 
   for (let triangle = 0; triangle < triangleCount; triangle += 1) {
     const vertexOffset = triangle * 3;
-    const keys = [
-      vertexKey(position, vertexOffset),
-      vertexKey(position, vertexOffset + 1),
-      vertexKey(position, vertexOffset + 2),
+    const triangleVertexIds = [
+      vertexIds[vertexOffset],
+      vertexIds[vertexOffset + 1],
+      vertexIds[vertexOffset + 2],
     ];
-    const edges: Array<readonly [number, number, TriangleEdge]> = [
-      [0, 1, 0],
-      [1, 2, 1],
-      [2, 0, 2],
+    const edges: Array<readonly [number, number]> = [
+      [0, 1],
+      [1, 2],
+      [2, 0],
     ];
 
-    edges.forEach(([start, end, edge]) => {
-      const key = edgeKey(keys[start], keys[end]);
-      const uses = edgeUses.get(key) ?? [];
-      uses.push({ triangle, edge, groupIndex: groupIndices[triangle] });
-      edgeUses.set(key, uses);
+    edges.forEach(([start, end], edge) => {
+      const vertexA = triangleVertexIds[start];
+      const vertexB = triangleVertexIds[end];
+      const minVertex = Math.min(vertexA, vertexB);
+      const maxVertex = Math.max(vertexA, vertexB);
+      const edgeKey = minVertex * position.count + maxVertex;
+      const edgeIndex = triangle * 3 + edge;
+      const firstEdgeIndex = edgeUses.get(edgeKey);
+
+      if (firstEdgeIndex === undefined) {
+        edgeUses.set(edgeKey, edgeIndex);
+        return;
+      }
+
+      if (secondEdgeUses[firstEdgeIndex] !== STUDY_BAND_SENTINEL) {
+        const secondEdgeIndex = secondEdgeUses[firstEdgeIndex];
+        if (secondEdgeIndex >= 0) {
+          neighbors[firstEdgeIndex] = STUDY_BAND_SENTINEL;
+          neighbors[secondEdgeIndex] = STUDY_BAND_SENTINEL;
+        }
+        secondEdgeUses[firstEdgeIndex] = -2;
+        if (collectBlockedEdges) {
+          blockedEdges.push({
+            reason: "non-manifold",
+            triangles: [Math.floor(firstEdgeIndex / 3), Math.floor(edgeIndex / 3)],
+            edges: [(firstEdgeIndex % 3) as TriangleEdge, (edgeIndex % 3) as TriangleEdge],
+          });
+        }
+        return;
+      }
+
+      secondEdgeUses[firstEdgeIndex] = edgeIndex;
+      const triangleA = Math.floor(firstEdgeIndex / 3);
+      const triangleB = triangle;
+      const edgeA = (firstEdgeIndex % 3) as TriangleEdge;
+      const edgeB = edge as TriangleEdge;
+
+      if (groupIndices[triangleA] !== groupIndices[triangleB]) {
+        if (collectBlockedEdges) {
+          blockedEdges.push({
+            reason: "group",
+            triangles: [triangleA, triangleB],
+            edges: [edgeA, edgeB],
+          });
+        }
+        return;
+      }
+
+      const dot = clamp(
+        triangleVector(normals, triangleA, normalA).dot(triangleVector(normals, triangleB, normalB)),
+        -1,
+        1,
+      );
+      if (dot < hardNormalCos) {
+        if (collectBlockedEdges) {
+          blockedEdges.push({
+            reason: "hard-normal",
+            triangles: [triangleA, triangleB],
+            edges: [edgeA, edgeB],
+            angleDeg: Math.acos(dot) * RAD_TO_DEG,
+          });
+        }
+        return;
+      }
+
+      addNeighbor(neighbors, firstEdgeIndex, edgeIndex);
     });
   }
 
-  edgeUses.forEach((uses) => {
-    if (uses.length === 1) {
-      const [use] = uses;
-      openEdges[use.triangle * 3 + use.edge] = 1;
-      blockedEdges.push({ reason: "open", triangles: [use.triangle], edges: [use.edge] });
+  edgeUses.forEach((firstEdgeIndex) => {
+    if (secondEdgeUses[firstEdgeIndex] !== STUDY_BAND_SENTINEL) {
       return;
     }
-
-    if (uses.length > 2) {
+    openEdges[firstEdgeIndex] = 1;
+    if (collectBlockedEdges) {
       blockedEdges.push({
-        reason: "non-manifold",
-        triangles: uses.map((use) => use.triangle),
-        edges: uses.map((use) => use.edge),
+        reason: "open",
+        triangles: [Math.floor(firstEdgeIndex / 3)],
+        edges: [(firstEdgeIndex % 3) as TriangleEdge],
       });
-      return;
     }
-
-    const [a, b] = uses;
-    if (a.groupIndex !== b.groupIndex) {
-      blockedEdges.push({ reason: "group", triangles: [a.triangle, b.triangle], edges: [a.edge, b.edge] });
-      return;
-    }
-
-    const dot = clamp(
-      triangleVector(normals, a.triangle, normalA).dot(triangleVector(normals, b.triangle, normalB)),
-      -1,
-      1,
-    );
-    if (dot < hardNormalCos) {
-      blockedEdges.push({
-        reason: "hard-normal",
-        triangles: [a.triangle, b.triangle],
-        edges: [a.edge, b.edge],
-        angleDeg: Math.acos(dot) * RAD_TO_DEG,
-      });
-      return;
-    }
-
-    addNeighbor(neighbors, a, b);
   });
 
   return {
@@ -350,9 +374,7 @@ export function buildTriangleGraph(
 }
 
 export function quantizeStudyBand(value: number, stepCount: QuantizedStepCount): number {
-  if (stepCount !== 3 && stepCount !== 5) {
-    throw new Error(`Invalid value band cleanup step count: ${String(stepCount)}`);
-  }
+  assertValueStepCount(stepCount);
 
   return Math.min(stepCount - 1, Math.max(0, Math.floor(clamp01(value) * stepCount)));
 }
@@ -365,18 +387,19 @@ function computeBandConfidence(value: number, stepCount: QuantizedStepCount): nu
     return 1;
   }
 
-  let nearestBoundaryDistance = Number.POSITIVE_INFINITY;
-  for (let boundary = 1; boundary < stepCount; boundary += 1) {
-    nearestBoundaryDistance = Math.min(nearestBoundaryDistance, Math.abs(clampedValue - boundary / stepCount));
+  const scaledValue = clampedValue * stepCount;
+  if (scaledValue < 1) {
+    return clamp01((1 - scaledValue) * 2);
   }
-
-  return clamp01(nearestBoundaryDistance / (0.5 / stepCount));
+  if (scaledValue > stepCount - 1) {
+    return clamp01((scaledValue - (stepCount - 1)) * 2);
+  }
+  const fractional = scaledValue - Math.floor(scaledValue);
+  return clamp01(Math.min(fractional, 1 - fractional) * 2);
 }
 
 function validateBandCleanupInput(graph: TriangleGraph, input: BandCleanupInput): void {
-  if (input.stepCount !== 3 && input.stepCount !== 5) {
-    throw new Error(`Invalid value band cleanup step count: ${String(input.stepCount)}`);
-  }
+  assertValueStepCount(input.stepCount);
   if (input.bands.length !== graph.triangleCount) {
     throw new Error("Invalid value band cleanup input: band count does not match graph");
   }
@@ -395,86 +418,25 @@ function validateBandCleanupInput(graph: TriangleGraph, input: BandCleanupInput)
   }
 }
 
-function buildComponents(graph: TriangleGraph, input: BandCleanupInput): {
-  components: BandComponent[];
-  componentByTriangle: Int32Array;
-} {
-  const componentByTriangle = new Int32Array(graph.triangleCount);
-  componentByTriangle.fill(STUDY_BAND_SENTINEL);
-  const components: BandComponent[] = [];
-
-  for (let seed = 0; seed < graph.triangleCount; seed += 1) {
-    if (componentByTriangle[seed] !== STUDY_BAND_SENTINEL) {
-      continue;
-    }
-
-    const componentIndex = components.length;
-    const band = input.bands[seed];
-    const stack = [seed];
-    const triangles: number[] = [];
-    let lowConfidenceCount = 0;
-    let isLocked = false;
-    let hasOpenBoundary = false;
-    componentByTriangle[seed] = componentIndex;
-
-    while (stack.length > 0) {
-      const triangle = stack.pop();
-      if (triangle === undefined) {
-        throw new Error("Invalid value band cleanup traversal state");
-      }
-
-      triangles.push(triangle);
-      lowConfidenceCount += input.lowConfidence[triangle] ? 1 : 0;
-      isLocked ||= Boolean(input.locked[triangle]);
-      for (let edge = 0; edge < 3; edge += 1) {
-        const edgeIndex = triangle * 3 + edge;
-        hasOpenBoundary ||= Boolean(graph.openEdges[edgeIndex]);
-        const neighbor = graph.neighbors[edgeIndex];
-        if (
-          neighbor < 0 ||
-          componentByTriangle[neighbor] !== STUDY_BAND_SENTINEL ||
-          input.bands[neighbor] !== band
-        ) {
-          continue;
-        }
-        componentByTriangle[neighbor] = componentIndex;
-        stack.push(neighbor);
-      }
-    }
-
-    components.push({
-      index: componentIndex,
-      band,
-      triangles,
-      isLowConfidence: lowConfidenceCount / triangles.length >= 0.5,
-      isLocked,
-      hasOpenBoundary,
-    });
-  }
-
-  return { components, componentByTriangle };
-}
-
 function chooseDominantNeighborBand(
   graph: TriangleGraph,
-  component: BandComponent,
-  componentByTriangle: Int32Array,
-  components: BandComponent[],
+  triangles: readonly number[],
+  componentBand: number,
+  bands: Int8Array,
   compatibleBandDistance: number,
 ): number | null {
   const counts = new Map<number, number>();
-  component.triangles.forEach((triangle) => {
+  triangles.forEach((triangle) => {
     for (let edge = 0; edge < 3; edge += 1) {
       const neighbor = graph.neighbors[triangle * 3 + edge];
       if (neighbor < 0) {
         continue;
       }
-      const neighborComponentIndex = componentByTriangle[neighbor];
-      if (neighborComponentIndex === component.index) {
+      const neighborBand = bands[neighbor];
+      if (neighborBand === componentBand) {
         continue;
       }
-      const neighborBand = components[neighborComponentIndex].band;
-      if (Math.abs(neighborBand - component.band) > compatibleBandDistance) {
+      if (Math.abs(neighborBand - componentBand) > compatibleBandDistance) {
         continue;
       }
       counts.set(neighborBand, (counts.get(neighborBand) ?? 0) + 1);
@@ -509,33 +471,71 @@ export function cleanupBandIslands(
   }
 
   const output = Int8Array.from(input.bands);
-  const { components, componentByTriangle } = buildComponents(graph, input);
+  const visited = new Uint8Array(graph.triangleCount);
+  const stack = new Int32Array(graph.triangleCount);
 
-  components.forEach((component) => {
+  for (let seed = 0; seed < graph.triangleCount; seed += 1) {
+    if (visited[seed]) {
+      continue;
+    }
+
+    const band = input.bands[seed];
+    const tinyTriangles: number[] = [];
+    let stackSize = 1;
+    let componentSize = 0;
+    let lowConfidenceCount = 0;
+    let isLocked = false;
+    let hasOpenBoundary = false;
+    stack[0] = seed;
+    visited[seed] = 1;
+
+    while (stackSize > 0) {
+      stackSize -= 1;
+      const triangle = stack[stackSize];
+      componentSize += 1;
+      if (componentSize <= maxTinyComponentTriangles) {
+        tinyTriangles.push(triangle);
+      }
+      lowConfidenceCount += input.lowConfidence[triangle] ? 1 : 0;
+      isLocked ||= Boolean(input.locked[triangle]);
+
+      for (let edge = 0; edge < 3; edge += 1) {
+        const edgeIndex = triangle * 3 + edge;
+        hasOpenBoundary ||= Boolean(graph.openEdges[edgeIndex]);
+        const neighbor = graph.neighbors[edgeIndex];
+        if (neighbor < 0 || visited[neighbor] || input.bands[neighbor] !== band) {
+          continue;
+        }
+        visited[neighbor] = 1;
+        stack[stackSize] = neighbor;
+        stackSize += 1;
+      }
+    }
+
     if (
-      component.triangles.length > maxTinyComponentTriangles ||
-      !component.isLowConfidence ||
-      component.isLocked ||
-      component.hasOpenBoundary
+      componentSize > maxTinyComponentTriangles ||
+      lowConfidenceCount / componentSize < 0.5 ||
+      isLocked ||
+      hasOpenBoundary
     ) {
-      return;
+      continue;
     }
 
     const targetBand = chooseDominantNeighborBand(
       graph,
-      component,
-      componentByTriangle,
-      components,
+      tinyTriangles,
+      band,
+      input.bands,
       compatibleBandDistance,
     );
-    if (targetBand === null || targetBand === component.band) {
-      return;
+    if (targetBand === null || targetBand === band) {
+      continue;
     }
 
-    component.triangles.forEach((triangle) => {
+    tinyTriangles.forEach((triangle) => {
       output[triangle] = targetBand;
     });
-  });
+  }
 
   return output;
 }
@@ -574,79 +574,107 @@ function computeDirectionalStudyValue(
   keyStrength: number,
   bounceStrength: number,
 ): number {
-  const direct = clamp(normal.dot(lightDirection.clone().negate()), 0, 1);
+  const direct = clamp(-normal.dot(lightDirection), 0, 1);
   const key = direct * clamp(keyStrength, 0, 2.5) * 0.82;
   const bounce = getStudyBounce(normal, position, direct, bounceStrength, 0, 1);
-  return clamp01(0.08 + key + bounce);
+  return clamp01(0.05 + key + bounce);
 }
 
-function computeZenithalRing(normal: Vector3): number {
-  let ring = 0;
-  ZENITHAL_RING_DIRECTIONS.forEach(([x, y, z]) => {
-    ring += clamp(normal.x * x + normal.y * y + normal.z * z, 0, 1);
-  });
-  return ring / ZENITHAL_RING_DIRECTIONS.length;
-}
-
-function computeZenithalStudyValue(
+function computeClassicTopStudyValue(
   normal: Vector3,
   position: Vector3,
   keyStrength: number,
   bounceStrength: number,
 ): number {
-  const ring = computeZenithalRing(normal);
-  const overhead = clamp(normal.y, 0, 1) * 0.16;
-  const key = ring * clamp(keyStrength, 0, 2.5) * 0.74;
-  const bounce = getStudyBounce(normal, position, ring, bounceStrength, 0, 1) * 0.72;
-  return clamp01(0.1 + key + overhead + bounce);
+  const overhead = clamp(normal.y, 0, 1);
+  const broadTop = overhead ** 0.65;
+  const key = overhead * clamp(keyStrength, 0, 2.5) * 0.78;
+  const softTopFill = broadTop * clamp(keyStrength, 0, 2.5) * 0.08;
+  const bounce = getStudyBounce(normal, position, overhead, bounceStrength, 0, 1) * 0.35;
+  return clamp01(0.025 + key + softTopFill + bounce);
+}
+
+export type StudyBandComputationSettings = {
+  lightDirection: readonly [number, number, number];
+  keyStrength: number;
+  bounceStrength: number;
+  bandBias: number;
+  stepCount: ValueStepCount;
+  lightingMode: LightingMode;
+};
+
+export function createStudyBandComputationSettings(
+  input: Omit<ComputeCleanStudyBandsInput, "geometry" | "renderStyle">,
+): StudyBandComputationSettings {
+  assertValueStepCount(input.stepCount);
+  const effectiveLight = resolveStudyLight(input.light, input.lightingMode);
+  const direction = normalizeLightDirection(lightPoseFromState(effectiveLight, input.lightTarget).direction);
+  return {
+    lightDirection: [direction.x, direction.y, direction.z],
+    keyStrength: effectiveLight.intensity,
+    bounceStrength: effectiveLight.bounceStrength,
+    bandBias: input.valueRamp.bandBias,
+    stepCount: input.stepCount,
+    lightingMode: input.lightingMode,
+  };
 }
 
 function computeRawBands(
   graph: TriangleGraph,
-  input: ComputeCleanStudyBandsInput,
-  stepCount: QuantizedStepCount,
+  settings: StudyBandComputationSettings,
 ): Pick<CleanedStudyBandResult, "values" | "bands" | "lowConfidence"> {
   const values = new Float32Array(graph.triangleCount);
   const bands = new Int8Array(graph.triangleCount);
   const lowConfidence = new Uint8Array(graph.triangleCount);
-  const lightDirection = normalizeLightDirection(lightPoseFromState(input.light, input.lightTarget).direction);
+  const lightDirection = normalizeLightDirection(
+    new Vector3(
+      settings.lightDirection[0],
+      settings.lightDirection[1],
+      settings.lightDirection[2],
+    ),
+  );
   const normal = new Vector3();
   const centroid = new Vector3();
 
   for (let triangle = 0; triangle < graph.triangleCount; triangle += 1) {
     triangleVector(graph.normals, triangle, normal);
     triangleVector(graph.centroids, triangle, centroid);
-    const value = input.zenithalStudy
-      ? computeZenithalStudyValue(normal, centroid, input.light.intensity, input.light.bounceStrength)
-      : computeDirectionalStudyValue(normal, centroid, lightDirection, input.light.intensity, input.light.bounceStrength);
-    const biasedValue = clamp01(value + input.valueRamp.bandBias);
+    const value = settings.lightingMode === "classic-top"
+      ? computeClassicTopStudyValue(normal, centroid, settings.keyStrength, settings.bounceStrength)
+      : computeDirectionalStudyValue(
+        normal,
+        centroid,
+        lightDirection,
+        settings.keyStrength,
+        settings.bounceStrength,
+      );
+    const biasedValue = clamp01(value + settings.bandBias);
 
     values[triangle] = value;
-    bands[triangle] = quantizeStudyBand(biasedValue, stepCount);
-    lowConfidence[triangle] = computeBandConfidence(biasedValue, stepCount) <= DEFAULT_LOW_CONFIDENCE_THRESHOLD ? 1 : 0;
+    bands[triangle] = quantizeStudyBand(biasedValue, settings.stepCount);
+    lowConfidence[triangle] =
+      computeBandConfidence(biasedValue, settings.stepCount) <= DEFAULT_LOW_CONFIDENCE_THRESHOLD
+        ? 1
+        : 0;
   }
 
   return { values, bands, lowConfidence };
 }
 
-export function computeCleanedStudyBands(
-  input: ComputeCleanStudyBandsInput,
+export function computeCleanedStudyBandsFromGraph(
+  graph: TriangleGraph,
+  settings: StudyBandComputationSettings,
   options: ValueBandCleanupOptions = {},
-): CleanedStudyBandResult | null {
-  const descriptor = getValueModeDescriptor(input.valueMode);
-  if (descriptor.stepCount === 1) {
-    return null;
-  }
-
-  const graph = buildTriangleGraph(input.geometry, options);
-  const labels = computeRawBands(graph, input, descriptor.stepCount);
+): CleanedStudyBandResult {
+  assertValueStepCount(settings.stepCount);
+  const labels = computeRawBands(graph, settings);
   const cleanedBands = cleanupBandIslands(
     graph,
     {
       bands: labels.bands,
       locked: new Uint8Array(graph.triangleCount),
       lowConfidence: labels.lowConfidence,
-      stepCount: descriptor.stepCount,
+      stepCount: settings.stepCount,
     },
     options,
   );
@@ -666,11 +694,24 @@ export function computeCleanedStudyBands(
   };
 }
 
+export function computeCleanedStudyBands(
+  input: ComputeCleanStudyBandsInput,
+  options: ValueBandCleanupOptions = {},
+): CleanedStudyBandResult | null {
+  if (input.renderStyle === "smooth") {
+    return null;
+  }
+
+  const graph = buildTriangleGraph(input.geometry, options);
+  const settings = createStudyBandComputationSettings(input);
+  return computeCleanedStudyBandsFromGraph(graph, settings, options);
+}
+
 export function computeCleanStudyBands(
   input: ComputeCleanStudyBandsInput,
   options: ValueBandCleanupOptions = {},
 ): Int8Array | null {
-  return computeCleanedStudyBands(input, options)?.cleanedBands ?? null;
+  return computeCleanedStudyBands(input, options)?.overrideBands ?? null;
 }
 
 export function expandTriangleBandsToStudyBandAttribute(

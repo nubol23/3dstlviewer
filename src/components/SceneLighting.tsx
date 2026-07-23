@@ -3,13 +3,14 @@ import { useThree } from "@react-three/fiber";
 import { Vector3 } from "three";
 import type { DirectionalLight as DirectionalLightType, Object3D as Object3DType } from "three";
 
-import type { LightState, ModelFitState } from "../types";
+import type { LightingMode, LightState, ModelFitState } from "../types";
 import {
   computeDirectionalShadowConfig,
   computeShadowBias,
   computeShadowMapSize,
   computeShadowRadius,
   lightPoseFromState,
+  resolveStudyLight,
 } from "../lib/light";
 
 type SceneLightingProps = {
@@ -17,6 +18,7 @@ type SceneLightingProps = {
   target?: Vector3;
   fit?: Pick<ModelFitState, "radius" | "center"> | null;
   modelFit?: Pick<ModelFitState, "radius" | "center"> | null;
+  lightingMode: LightingMode;
 };
 
 export function SceneLighting({
@@ -24,6 +26,7 @@ export function SceneLighting({
   target,
   fit,
   modelFit,
+  lightingMode,
 }: SceneLightingProps) {
   const effectiveFit = fit ?? modelFit ?? null;
   const focalTarget = target ?? modelFit?.center ?? fit?.center ?? null;
@@ -36,16 +39,17 @@ export function SceneLighting({
   const targetRef = useRef<Object3DType>(null);
   const previousShadowMapSizeRef = useRef<number | null>(null);
 
-  const pose = lightPoseFromState(light, resolvedTarget);
+  const effectiveLight = resolveStudyLight(light, lightingMode);
+  const pose = lightPoseFromState(effectiveLight, resolvedTarget);
   const lightPositionX = pose.position.x;
   const lightPositionY = pose.position.y;
   const lightPositionZ = pose.position.z;
-  const shadowConfig = computeDirectionalShadowConfig(effectiveFit, light.distance);
+  const shadowConfig = computeDirectionalShadowConfig(effectiveFit, effectiveLight.distance);
 
   const shadowMapSize = computeShadowMapSize(light.shadowSoftness);
   const shadowRadius = computeShadowRadius(light.shadowSoftness);
   const shadowBias = computeShadowBias(light.shadowSoftness);
-  const intensity = Math.max(light.intensity, 0);
+  const intensity = Math.max(effectiveLight.intensity, 0);
 
   useEffect(() => {
     const directional = lightRef.current;

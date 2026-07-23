@@ -8,6 +8,7 @@ import {
   lightPoseFromState,
   computeShadowMapSize,
   computeShadowRadius,
+  resolveStudyLight,
 } from "./light";
 
 const epsilon = 1e-6;
@@ -46,6 +47,25 @@ describe("light math", () => {
     expect(pose.position.length()).toBeCloseTo(3);
     expect(pose.direction.length()).toBeCloseTo(1);
     expect(pose.direction.dot(pose.position.clone().negate())).toBeGreaterThan(0.99);
+  });
+
+  it("forces classic top lighting overhead without changing its other controls", () => {
+    const light: LightState = {
+      azimuthDeg: 315,
+      elevationDeg: 50,
+      distance: 3,
+      intensity: 1.2,
+      bounceStrength: 0.16,
+      shadowSoftness: 0.35,
+      locked: false,
+    };
+
+    expect(resolveStudyLight(light, "directional")).toBe(light);
+    expect(resolveStudyLight(light, "classic-top")).toEqual({
+      ...light,
+      azimuthDeg: 0,
+      elevationDeg: 90,
+    });
   });
 
   it("derives position relative to a non-origin target", () => {

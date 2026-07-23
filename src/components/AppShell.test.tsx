@@ -87,14 +87,14 @@ describe("AppShell accessibility", () => {
     expect(mobileSheet).not.toHaveAttribute("hidden");
   });
 
-  it("keeps mobile value mode in the lower View tab instead of the viewport", () => {
+  it("keeps mobile value controls in the lower View tab instead of the viewport", () => {
     const { container } = renderShell({ activeTab: "view" });
 
     expect(container.querySelector(".mobile-mode-segmented")).not.toBeInTheDocument();
-    const mobileValueMode = screen.getByTestId("mobile-value-mode-control");
-    expect(within(mobileValueMode).getByRole("radio", { name: "Shaded" })).toBeChecked();
-    expect(within(mobileValueMode).getByRole("radio", { name: "3-Step" })).toBeInTheDocument();
-    expect(within(mobileValueMode).getByRole("radio", { name: "5-Step" })).toBeInTheDocument();
+    const mobileValueStudy = screen.getByTestId("mobile-value-study-control");
+    expect(within(mobileValueStudy).getByRole("radio", { name: "Smooth" })).toBeChecked();
+    expect(within(mobileValueStudy).getByRole("radio", { name: "Stepped" })).toBeInTheDocument();
+    expect(within(mobileValueStudy).getByRole("combobox", { name: "Values" })).toBeDisabled();
   });
 
   it("exposes desktop and mobile value ramp controls", () => {
@@ -107,11 +107,12 @@ describe("AppShell accessibility", () => {
     expect(screen.getAllByRole("slider", { name: /Band Bias/ })).toHaveLength(2);
   });
 
-  it("exposes zenithal study controls and disables unused direction inputs when enabled", () => {
-    renderShell({ activeTab: "light", zenithalStudy: true });
+  it("exposes classic top controls and disables unused direction inputs", () => {
+    renderShell({ activeTab: "light", lightingMode: "classic-top" });
 
-    expect(screen.getByTestId("desktop-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("mobile-zenithal-study-checkbox")).toHaveAttribute("aria-checked", "true");
+    screen.getAllByRole("radio", { name: "Classic Top" }).forEach((radio) => {
+      expect(radio).toBeChecked();
+    });
     screen.getAllByRole("button", { name: "Light direction pad" }).forEach((button) => {
       expect(button).toBeDisabled();
     });
@@ -120,6 +121,44 @@ describe("AppShell accessibility", () => {
     });
     screen.getAllByRole("slider", { name: /Elevation/ }).forEach((slider) => {
       expect(slider).toBeDisabled();
+    });
+    expect(screen.getAllByRole("combobox", { name: "Apply Lighting Setup" })).toHaveLength(2);
+  });
+
+  it("shows every supported stepped value count and a matching preview", () => {
+    renderShell({ activeTab: "view", renderStyle: "stepped", valueStepCount: 8 });
+
+    const countControls = screen.getAllByRole("combobox", { name: "Values" });
+    expect(countControls).toHaveLength(2);
+    countControls.forEach((control) => {
+      expect(control).toHaveValue("8");
+      expect(within(control).getAllByRole("option")).toHaveLength(6);
+    });
+    expect(screen.getByTestId("desktop-value-ramp-preview").children).toHaveLength(8);
+    expect(screen.getByTestId("mobile-value-ramp-preview").children).toHaveLength(8);
+  });
+
+  it("shows a continuous ramp preview in smooth mode", () => {
+    renderShell({ activeTab: "view", renderStyle: "smooth" });
+
+    const previews = [
+      screen.getByTestId("desktop-value-ramp-preview"),
+      screen.getByTestId("mobile-value-ramp-preview"),
+    ];
+    previews.forEach((preview) => {
+      expect(preview).toHaveClass("is-smooth");
+      expect(preview.style.getPropertyValue("--value-ramp-gradient")).toMatch(
+        /^linear-gradient\(90deg, .+\)$/,
+      );
+      expect(preview.children).toHaveLength(0);
+    });
+  });
+
+  it("disables lighting mode changes while the light is locked", () => {
+    renderShell({ activeTab: "light", light: { ...createInitialState().light, locked: true } });
+
+    screen.getAllByRole("radio", { name: "Classic Top" }).forEach((radio) => {
+      expect(radio).toBeDisabled();
     });
   });
 });
