@@ -19,110 +19,28 @@ import { createUuid } from "./lib/uuid";
 export const STORAGE_KEY = "stl-value-viewer:v1";
 
 export const DEFAULT_LIGHT: LightState = {
-  azimuthDeg: 315,
-  elevationDeg: 50,
-  distance: 2.8,
-  intensity: 1.25,
-  bounceStrength: 0.16,
-  shadowSoftness: 0.35,
-  locked: false,
+  azimuthDeg: 315, elevationDeg: 50, distance: 2.8, intensity: 3,
+  environmentIntensity: 0.25, spread: 0.5, shadowSoftness: 0.35,
+  secondaryIntensity: 0.45, secondaryAzimuthDeg: 135, secondaryElevationDeg: 35,
+  sourceSize: 0.15, reflector: false, locked: false,
 };
-
 export const DEFAULT_RENDER_STYLE: ValueRenderStyle = "smooth";
 export const DEFAULT_VALUE_STEP_COUNT: ValueStepCount = 5;
 export const DEFAULT_LIGHTING_MODE: LightingMode = "directional";
-
-export const DEFAULT_FLOOR: FloorState = {
-  color: "#c4c4c1",
-  roughness: 0.85,
-};
-
+export const DEFAULT_FLOOR: FloorState = { color: "#888888", roughness: 1, reflectance: 0.5 };
 export type LightSetup = {
-  id: string;
-  name: string;
-  description: string;
-  light: Omit<LightState, "locked">;
-  lightingMode: LightingMode;
+  id: string; name: string; description: string;
+  light: LightState; lightingMode: LightingMode;
 };
-
 export const LIGHT_SETUPS: readonly LightSetup[] = [
-  {
-    id: "bust-left",
-    name: "Bust Left",
-    description: "Upper-front-left portrait key with restrained fill.",
-    light: { ...DEFAULT_LIGHT, azimuthDeg: 315, elevationDeg: 50, bounceStrength: 0.16 },
-    lightingMode: "directional",
-  },
-  {
-    id: "bust-right",
-    name: "Bust Right",
-    description: "Mirrored upper-front-right portrait key.",
-    light: { ...DEFAULT_LIGHT, azimuthDeg: 45, elevationDeg: 50, bounceStrength: 0.16 },
-    lightingMode: "directional",
-  },
-  {
-    id: "true-zenith",
-    name: "True Zenith",
-    description: "Single light directly above the model.",
-    light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, bounceStrength: 0.12 },
-    lightingMode: "directional",
-  },
-  {
-    id: "classic-top",
-    name: "Classic Top Prime",
-    description: "Broad top-weighted illumination that preserves occluded recesses.",
-    light: {
-      ...DEFAULT_LIGHT,
-      azimuthDeg: 0,
-      elevationDeg: 90,
-      intensity: 1.15,
-      bounceStrength: 0.1,
-      shadowSoftness: 0.5,
-    },
-    lightingMode: "classic-top",
-  },
-  {
-    id: "dramatic-side",
-    name: "Dramatic Side",
-    description: "Low-fill three-quarter side light for strong form separation.",
-    light: {
-      ...DEFAULT_LIGHT,
-      azimuthDeg: 315,
-      elevationDeg: 35,
-      intensity: 1.35,
-      bounceStrength: 0.08,
-      shadowSoftness: 0.22,
-    },
-    lightingMode: "directional",
-  },
-] as const;
-
-const DEFAULT_PRESETS: LightPreset[] = [
-  {
-    id: "front-left-high",
-    name: "Bust Left",
-    light: { ...DEFAULT_LIGHT },
-    renderStyle: "smooth",
-    valueStepCount: 5,
-    valueRamp: DEFAULT_VALUE_RAMP,
-    lightingMode: "directional",
-  },
-  {
-    id: "rim-study",
-    name: "Rim Study",
-    light: {
-      ...DEFAULT_LIGHT,
-      azimuthDeg: 155,
-      elevationDeg: 34,
-      distance: 3.4,
-      bounceStrength: 0.12,
-    },
-    renderStyle: "stepped",
-    valueStepCount: 5,
-    valueRamp: DEFAULT_VALUE_RAMP,
-    lightingMode: "directional",
-  },
+  { id: "zenithal", name: "Strict Zenithal", description: "Concentrated overhead light.", lightingMode: "zenithal", light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, environmentIntensity: 0.12 } },
+  { id: "broad-zenithal", name: "Broad Zenithal", description: "Overhead light blended with an all-around gradient environment.", lightingMode: "broad-zenithal", light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, spread: 0.65 } },
+  { id: "directional", name: "Directional", description: "Upper-front-left key.", lightingMode: "directional", light: { ...DEFAULT_LIGHT } },
+  { id: "local", name: "Local Studio", description: "Nearby lamp with distance falloff.", lightingMode: "local", light: { ...DEFAULT_LIGHT, distance: 2, intensity: 3 } },
+  { id: "dual", name: "Double Directional", description: "Two independently shadowed lights.", lightingMode: "dual", light: { ...DEFAULT_LIGHT } },
+  { id: "reflected", name: "Reflected Fill", description: "Key plus environment and floor; refinement resolves actual bounce.", lightingMode: "reflected", light: { ...DEFAULT_LIGHT, environmentIntensity: 0.55 } },
 ];
+const DEFAULT_PRESETS: LightPreset[] = [];
 
 export function createInitialState(): AppState {
   const persisted = readPersistedState();
@@ -165,9 +83,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, renderStyle: action.renderStyle };
     case "set-value-step-count":
       assertValueStepCount(action.valueStepCount);
-      return { ...state, valueStepCount: action.valueStepCount };
-    case "set-value-ramp":
-      return { ...state, valueRamp: assertValueRampState({ ...state.valueRamp, ...action.patch }) };
+      return { ...state, valueStepCount: action.valueStepCount, valueRamp: { ...state.valueRamp, thresholds: Array.from({ length: action.valueStepCount - 1 }, (_, i) => (i + 1) / action.valueStepCount) } };
+    case "set-value-ramp": {
+      const valueRamp = assertValueRampState({ ...state.valueRamp, ...action.patch });
+      if (valueRamp.thresholds.length !== state.valueStepCount - 1) throw new Error("Band threshold count must match the value count");
+      return { ...state, valueRamp };
+    }
     case "set-lighting-mode":
       if (state.light.locked) {
         return state;
@@ -216,6 +137,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const nextPreset: LightPreset = {
         id: `preset-${createUuid()}`,
         name: `Preset ${state.presets.length + 1}`,
+        floor: { ...state.floor },
         light: { ...state.light, locked: false },
         renderStyle: state.renderStyle,
         valueStepCount: state.valueStepCount,
@@ -231,6 +153,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       return {
         ...state,
+        floor: assertFloorState(preset.floor),
         light: assertLightState({ ...preset.light, locked: false }),
         renderStyle: preset.renderStyle,
         valueStepCount: preset.valueStepCount,
@@ -250,7 +173,7 @@ type PersistableAppState = Pick<
 
 export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
-    version: 4,
+    version: 5,
     light: state.light,
     renderStyle: state.renderStyle,
     valueStepCount: state.valueStepCount,
@@ -320,7 +243,7 @@ const FLOOR_COLOR_SCHEMA = z
     }
   });
 
-const LIGHTING_MODE_SCHEMA = z.enum(["directional", "classic-top"], {
+const LIGHTING_MODE_SCHEMA = z.enum(["directional", "zenithal", "broad-zenithal", "local", "dual", "reflected"], {
   error: (issue) => `Unsupported lighting mode: ${String(issue.input)}`,
 });
 
@@ -332,14 +255,21 @@ const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object({
   azimuthDeg: numberRangeSchema("light azimuth", 0, 360),
   elevationDeg: numberRangeSchema("light elevation", -78, 90),
   distance: numberRangeSchema("light distance", 1, 6),
-  intensity: numberRangeSchema("light intensity", 0.1, 2.5),
-  bounceStrength: numberRangeSchema("light bounce strength", 0, 0.6),
+  intensity: numberRangeSchema("light intensity", 0, 10),
+  environmentIntensity: numberRangeSchema("environment intensity", 0, 3),
+  spread: numberRangeSchema("zenithal spread", 0, 1),
+  secondaryIntensity: numberRangeSchema("secondary ratio", 0, 2),
+  secondaryAzimuthDeg: numberRangeSchema("secondary azimuth", 0, 360),
+  secondaryElevationDeg: numberRangeSchema("secondary elevation", -78, 90),
+  sourceSize: numberRangeSchema("source size", 0, 1),
+  reflector: z.boolean(),
   shadowSoftness: numberRangeSchema("light shadow softness", 0, 1),
   locked: z.boolean({ error: (issue) => `Invalid light locked: ${String(issue.input)}` }),
 });
 
 const FLOOR_STATE_SCHEMA: z.ZodType<FloorState> = z.object({
   color: FLOOR_COLOR_SCHEMA,
+  reflectance: numberRangeSchema("ground reflectance", 0, 1),
   roughness: numberRangeSchema("floor roughness", 0.05, 1),
 });
 
@@ -382,9 +312,11 @@ function assertPreset(value: unknown): LightPreset {
   assertValueRenderStyle(preset.renderStyle);
   assertValueStepCount(preset.valueStepCount);
 
+  if (assertValueRampState(preset.valueRamp).thresholds.length !== preset.valueStepCount - 1) throw new Error("Invalid preset threshold count");
   return {
     id: parseSchema(stringSchema("preset id"), preset.id, "Invalid preset id"),
     name: parseSchema(stringSchema("preset name"), preset.name, "Invalid preset name"),
+    floor: assertFloorState(preset.floor),
     light: assertLightState(preset.light),
     renderStyle: preset.renderStyle,
     valueStepCount: preset.valueStepCount,
@@ -399,7 +331,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     value,
     "Invalid persisted viewer state",
   );
-  parseSchema(z.literal(4), persisted.version, "Unsupported persisted viewer state version");
+  parseSchema(z.literal(5), persisted.version, "Unsupported persisted viewer state version");
   assertValueRenderStyle(persisted.renderStyle);
   assertValueStepCount(persisted.valueStepCount);
   const presets = parseSchema(
@@ -410,8 +342,9 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     "Invalid persisted viewer state presets",
   );
 
+  if (assertValueRampState(persisted.valueRamp).thresholds.length !== persisted.valueStepCount - 1) throw new Error("Invalid persisted threshold count");
   return {
-    version: 4,
+    version: 5,
     light: assertLightState(persisted.light),
     renderStyle: persisted.renderStyle,
     valueStepCount: persisted.valueStepCount,

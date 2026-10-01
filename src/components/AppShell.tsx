@@ -26,11 +26,6 @@ const RENDER_STYLE_OPTIONS = [
   { value: "stepped", label: "Stepped" },
 ] as const;
 
-const LIGHTING_MODE_OPTIONS = [
-  { value: "directional", label: "Bust / Directional" },
-  { value: "classic-top", label: "Classic Top" },
-] as const;
-
 const VALUE_STEP_COUNTS: readonly ValueStepCount[] = [3, 4, 5, 6, 7, 8];
 
 type AppShellProps = {
@@ -234,6 +229,8 @@ function ValueRampControl({
         testId={`${testIdPrefix}-highlight-value-slider`}
         formatValue={(value) => value.toFixed(0)}
       />
+      <RangeControl label="Exposure" min={0.1} max={4} step={0.05} value={valueRamp.exposure} onChange={exposure => onChange({ exposure })} />
+      <RangeControl label="Smoothing Radius" min={0} max={4} step={0.25} value={valueRamp.smoothingRadius} onChange={smoothingRadius => onChange({ smoothingRadius })} formatValue={v => `${v.toFixed(2)} px`} />
       <RangeControl
         label="Band Bias"
         min={-0.25}
@@ -244,6 +241,13 @@ function ValueRampControl({
         testId={`${testIdPrefix}-band-bias-slider`}
         formatValue={(value) => (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2))}
       />
+      {renderStyle === "stepped" && <details><summary>Band thresholds</summary>
+        {valueRamp.thresholds.map((threshold, index) => <RangeControl
+          key={index} label={`Boundary ${index + 1}`} min={index ? valueRamp.thresholds[index - 1] + 0.01 : 0.01}
+          max={index < valueRamp.thresholds.length - 1 ? valueRamp.thresholds[index + 1] - 0.01 : 0.99}
+          step={0.01} value={threshold} onChange={value => onChange({ thresholds: valueRamp.thresholds.map((v, i) => i === index ? value : v) })}
+        />)}
+      </details>}
     </div>
   );
 }
@@ -304,15 +308,12 @@ function LightingModeControl({
   testId: string;
 }) {
   return (
-    <SegmentedControl
-      options={LIGHTING_MODE_OPTIONS}
-      value={lightingMode}
-      onChange={onChange}
-      ariaLabel="Lighting model"
-      disabled={disabled}
-      name={name}
-      testId={testId}
-    />
+    <label className="light-setup-control" data-testid={testId}>
+      <span>Lighting model</span>
+      <select aria-label="Lighting model" name={name} value={lightingMode} disabled={disabled} onChange={e => onChange(e.target.value as LightingMode)}>
+        {LIGHT_SETUPS.map(setup => <option key={setup.id} value={setup.lightingMode}>{setup.name}</option>)}
+      </select>
+    </label>
   );
 }
 
@@ -557,6 +558,7 @@ export function AppShell({
             <div className="panel-section__header">
               <h3>Floor</h3>
             </div>
+            <RangeControl label="Ground Reflectance" min={0} max={1} step={0.01} value={state.floor.reflectance} onChange={reflectance => setFloor({ reflectance })} />
             <label className="floor-color">
               <span>Floor Color</span>
               <input type="color" value={state.floor.color} onChange={(event) => setFloor({ color: event.target.value })} />
@@ -631,7 +633,7 @@ export function AppShell({
               light={state.light}
               onChange={handleLightChange}
               disabled={lightLocked}
-              classicTop={state.lightingMode === "classic-top"}
+              lightingMode={state.lightingMode}
             />
           </section>
         </aside>
@@ -671,7 +673,7 @@ export function AppShell({
                 light={state.light}
                 onChange={handleLightChange}
                 disabled={lightLocked}
-                classicTop={state.lightingMode === "classic-top"}
+                lightingMode={state.lightingMode}
               />
               <LightSetupControl
                 disabled={lightLocked}
@@ -762,7 +764,8 @@ export function AppShell({
                 <div className="panel-section__header">
                   <h3>Floor</h3>
                 </div>
-                <label className="floor-color">
+                <RangeControl label="Ground Reflectance" min={0} max={1} step={0.01} value={state.floor.reflectance} onChange={reflectance => setFloor({ reflectance })} />
+            <label className="floor-color">
                   <span>Floor Color</span>
                   <input
                     type="color"

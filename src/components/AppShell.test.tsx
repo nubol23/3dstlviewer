@@ -107,11 +107,11 @@ describe("AppShell accessibility", () => {
     expect(screen.getAllByRole("slider", { name: /Band Bias/ })).toHaveLength(2);
   });
 
-  it("exposes classic top controls and disables unused direction inputs", () => {
-    renderShell({ activeTab: "light", lightingMode: "classic-top" });
+  it("exposes broad zenithal controls and disables unused direction inputs", () => {
+    renderShell({ activeTab: "light", lightingMode: "broad-zenithal" });
 
-    screen.getAllByRole("radio", { name: "Classic Top" }).forEach((radio) => {
-      expect(radio).toBeChecked();
+    screen.getAllByRole("combobox", { name: "Lighting model" }).forEach((radio) => {
+      expect(radio).toHaveValue("broad-zenithal");
     });
     screen.getAllByRole("button", { name: "Light direction pad" }).forEach((button) => {
       expect(button).toBeDisabled();
@@ -157,7 +157,7 @@ describe("AppShell accessibility", () => {
   it("disables lighting mode changes while the light is locked", () => {
     renderShell({ activeTab: "light", light: { ...createInitialState().light, locked: true } });
 
-    screen.getAllByRole("radio", { name: "Classic Top" }).forEach((radio) => {
+    screen.getAllByRole("combobox", { name: "Lighting model" }).forEach((radio) => {
       expect(radio).toBeDisabled();
     });
   });

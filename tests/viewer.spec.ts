@@ -111,11 +111,11 @@ test.describe("STL viewer", () => {
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
 
     const desktopLightingMode = page.getByTestId("desktop-lighting-mode-control");
-    await desktopLightingMode.getByRole("radio", { name: "Classic Top" }).click();
-    await expect(desktopLightingMode.getByRole("radio", { name: "Classic Top" })).toBeChecked();
+    await desktopLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("broad-zenithal");
+    await expect(desktopLightingMode.getByRole("combobox", { name: "Lighting model" })).toHaveValue("broad-zenithal");
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeDisabled();
     await expect(page.getByTestId("light-elevation-slider").first()).toBeDisabled();
-    await desktopLightingMode.getByRole("radio", { name: "Bust / Directional" }).click();
+    await desktopLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("directional");
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
 
     await selectValueCount(desktopValueStudy, 5);
@@ -227,8 +227,8 @@ test.describe("STL viewer", () => {
 
     await page.getByRole("tab", { name: "Light" }).click();
     const mobileLightingMode = page.getByTestId("mobile-lighting-mode-control");
-    await mobileLightingMode.getByRole("radio", { name: "Classic Top" }).click();
-    await expect(mobileLightingMode.getByRole("radio", { name: "Classic Top" })).toBeChecked();
+    await mobileLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("broad-zenithal");
+    await expect(mobileLightingMode.getByRole("combobox", { name: "Lighting model" })).toHaveValue("broad-zenithal");
     await expect(page.locator(".mobile-sheet").getByTestId("light-azimuth-slider")).toBeDisabled();
     await expect(page.locator(".mobile-sheet").getByTestId("light-elevation-slider")).toBeDisabled();
     const lightLayout = await page.evaluate(() => {
@@ -282,8 +282,8 @@ test.describe("STL viewer", () => {
     await page.getByRole("tab", { name: "Light" }).click();
     await page
       .getByTestId("mobile-lighting-mode-control")
-      .getByRole("radio", { name: "Classic Top" })
-      .click();
+      .getByRole("combobox", { name: "Lighting model" })
+      .selectOption("broad-zenithal");
 
     const layout = await page.evaluate(() => {
       const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
@@ -312,4 +312,32 @@ test.describe("STL viewer", () => {
     await expect(page.getByText("1. X -90°")).toBeVisible();
     await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
   });
+});
+
+test("updates independent lights and screen-space values through the study controls", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await page.getByTestId("desktop-light-setup").selectOption("dual");
+  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true }).first();
+  await ratio.fill("0");
+  const keyOnly = await page.locator("canvas").screenshot();
+  await ratio.fill("1.5");
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(keyOnly)).toBe(false);
+  await page.getByTestId("desktop-light-setup").selectOption("local");
+  const distance = page.getByRole("slider", { name: "Source Distance", exact: true }).first();
+  await distance.fill("1");
+  const near = await page.locator("canvas").screenshot();
+  await distance.fill("5");
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(near)).toBe(false);
+  await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
+  await selectValueCount(page.getByTestId("value-study-control"), 3);
+  await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first().fill("3");
+  await page.getByTestId("desktop-value-ramp-control").getByText("Band thresholds").click();
+  await expect(page.getByRole("slider", { name: "Boundary 1", exact: true }).first()).toBeVisible();
+  await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.25");
+  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await page.reload();
+  await expect(page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first()).toHaveValue("3");
+  await expect(page.getByRole("combobox", { name: "Lighting model", exact: true }).first()).toHaveValue("local");
 });

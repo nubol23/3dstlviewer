@@ -1002,3 +1002,7 @@ input:disabled,
     font-size: 12px;
   }
 }
+
+@media (max-width: 767px) {
+  .mobile-sheet .sun-dome__title { display: none; }
+}

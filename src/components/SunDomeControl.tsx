@@ -1,13 +1,13 @@
 import { useCallback, useId, useMemo, useRef } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { LightState } from "../types";
+import type { LightState, LightingMode } from "../types";
 import { RangeControl } from "./Controls";
 
 type SunDomeControlProps = {
   light: LightState;
   onChange: (patch: Partial<LightState>) => void;
   disabled?: boolean;
-  classicTop?: boolean;
+  lightingMode?: LightingMode;
 };
 
 const MIN_ELEVATION = -78;
@@ -68,10 +68,11 @@ export function domePointToLightDirection(
   };
 }
 
-export function SunDomeControl({ light, onChange, disabled = false, classicTop = false }: SunDomeControlProps) {
+export function SunDomeControl({ light, onChange, disabled = false, lightingMode = "directional" }: SunDomeControlProps) {
   const domeRef = useRef<HTMLButtonElement | null>(null);
   const pointerActive = useRef(false);
   const readoutId = useId();
+  const classicTop = lightingMode === "zenithal" || lightingMode === "broad-zenithal";
   const directionDisabled = disabled || classicTop;
 
   const spherePosition = useMemo(() => projectLightToDomePoint(light), [light]);
@@ -225,23 +226,23 @@ export function SunDomeControl({ light, onChange, disabled = false, classicTop =
         {directionReadout}
       </div>
       <div className="sun-dome__sliders sun-dome__sliders--advanced">
-        <RangeControl
-          label="Shadow Range"
+        {lightingMode === "local" && <RangeControl
+          label="Source Distance"
           value={light.distance}
           min={1}
           max={6}
           step={0.05}
           onChange={(value) => onChange({ distance: value })}
-          suffix=" m"
+          suffix=" × height"
           disabled={disabled}
           testId="light-distance-slider"
-          formatValue={(value) => `${value.toFixed(2)}m`}
-        />
+          formatValue={(value) => `${value.toFixed(2)}×`}
+        />}
         <RangeControl
           label="Intensity"
           value={light.intensity}
-          min={0.1}
-          max={2.5}
+          min={0}
+          max={10}
           step={0.01}
           onChange={(value) => onChange({ intensity: value })}
           disabled={disabled}
@@ -249,14 +250,14 @@ export function SunDomeControl({ light, onChange, disabled = false, classicTop =
           formatValue={(value) => value.toFixed(2)}
         />
         <RangeControl
-          label="Bounce Strength"
-          value={light.bounceStrength}
+          label="Environment Strength"
+          value={light.environmentIntensity}
           min={0}
-          max={0.6}
+          max={3}
           step={0.01}
-          onChange={(value) => onChange({ bounceStrength: value })}
+          onChange={(value) => onChange({ environmentIntensity: value })}
           disabled={disabled}
-          testId="light-bounce-slider"
+          testId="light-environment-slider"
           formatValue={(value) => value.toFixed(2)}
         />
         <RangeControl
@@ -270,6 +271,15 @@ export function SunDomeControl({ light, onChange, disabled = false, classicTop =
           testId="light-shadow-softness-slider"
           formatValue={(value) => value.toFixed(2)}
         />
+        {lightingMode === "broad-zenithal" && <RangeControl label="Zenithal Spread" min={0} max={1} step={0.01} value={light.spread} onChange={spread => onChange({ spread })} disabled={disabled} />}
+        {lightingMode === "local" && <RangeControl label="Source Radius · Refined" min={0} max={1} step={0.01} value={light.sourceSize} onChange={sourceSize => onChange({ sourceSize })} disabled={disabled} formatValue={v => `${v.toFixed(2)}× height`} />}
+        {lightingMode === "dual" && <>
+          <RangeControl label="Second Light Ratio" min={0} max={2} step={0.01} value={light.secondaryIntensity} onChange={secondaryIntensity => onChange({ secondaryIntensity })} disabled={disabled} />
+          <RangeControl label="Second Azimuth" min={0} max={360} step={1} value={light.secondaryAzimuthDeg} onChange={secondaryAzimuthDeg => onChange({ secondaryAzimuthDeg })} disabled={disabled} />
+          <RangeControl label="Second Elevation" min={-78} max={90} step={1} value={light.secondaryElevationDeg} onChange={secondaryElevationDeg => onChange({ secondaryElevationDeg })} disabled={disabled} />
+        </>}
+        {lightingMode === "reflected" && <label className="control-hint"><input type="checkbox" checked={light.reflector} onChange={event => onChange({ reflector: event.target.checked })} disabled={disabled} /> Rear reflector · Refined</label>}
+        <p className="control-hint">Shadow softness applies to both lights. Environment fill is approximate in Preview.</p>
       </div>
     </section>
   );

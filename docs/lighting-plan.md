@@ -100,3 +100,9 @@ Fantasy_Archer_32mm_tabletop.stl (1,965,419 triangles). Read the user-owned file
 in place. Never copy, commit, or add them as fixtures. Report normal preparation,
 BVH build, memory, and mobile load behavior at full resolution, with no silent
 decimation. Only the existing three small STL fixtures are committed test meshes.
+
+Ground emphasis: raster ground does not receive model cast shadows. Model
+self-shadowing stays enabled. Ground Reflectance controls floor albedo and the
+gradient's lower-hemisphere approximation; refinement calculates ground bounce.
+The ground remains present in traced visibility because that affects illumination
+reaching the model.

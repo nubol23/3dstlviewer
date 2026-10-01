@@ -1,131 +1,77 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+/* eslint-disable react-hooks/immutability -- Three.js scene/renderer objects are imperative external resources, not React state. */
+import { useEffect, useMemo } from "react";
+import { SoftShadows } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { Vector3 } from "three";
-import type { DirectionalLight as DirectionalLightType, Object3D as Object3DType } from "three";
+import { Object3D, Vector3 } from "three";
+import { GradientEquirectTexture } from "three-gpu-pathtracer";
+import type { LightingMode, LightState, ModelFitState, FloorState } from "../types";
+import { RENDER_BUDGETS, resolveStudyLight, sphericalToPosition } from "../lib/light";
 
-import type { LightingMode, LightState, ModelFitState } from "../types";
-import {
-  computeDirectionalShadowConfig,
-  computeShadowBias,
-  computeShadowMapSize,
-  computeShadowRadius,
-  lightPoseFromState,
-  resolveStudyLight,
-} from "../lib/light";
+const DEFAULT_CENTER = new Vector3(0, 2, 0);
 
-type SceneLightingProps = {
-  light: LightState;
-  target?: Vector3;
-  fit?: Pick<ModelFitState, "radius" | "center"> | null;
-  modelFit?: Pick<ModelFitState, "radius" | "center"> | null;
-  lightingMode: LightingMode;
-};
-
-export function SceneLighting({
-  light,
-  target,
-  fit,
-  modelFit,
-  lightingMode,
-}: SceneLightingProps) {
-  const effectiveFit = fit ?? modelFit ?? null;
-  const focalTarget = target ?? modelFit?.center ?? fit?.center ?? null;
-  const targetX = focalTarget?.x ?? 0;
-  const targetY = focalTarget?.y ?? 0;
-  const targetZ = focalTarget?.z ?? 0;
-  const resolvedTarget = useMemo(() => new Vector3(targetX, targetY, targetZ), [targetX, targetY, targetZ]);
-  const { scene } = useThree();
-  const lightRef = useRef<DirectionalLightType>(null);
-  const targetRef = useRef<Object3DType>(null);
-  const previousShadowMapSizeRef = useRef<number | null>(null);
-
-  const effectiveLight = resolveStudyLight(light, lightingMode);
-  const pose = lightPoseFromState(effectiveLight, resolvedTarget);
-  const lightPositionX = pose.position.x;
-  const lightPositionY = pose.position.y;
-  const lightPositionZ = pose.position.z;
-  const shadowConfig = computeDirectionalShadowConfig(effectiveFit, effectiveLight.distance);
-
-  const shadowMapSize = computeShadowMapSize(light.shadowSoftness);
-  const shadowRadius = computeShadowRadius(light.shadowSoftness);
-  const shadowBias = computeShadowBias(light.shadowSoftness);
-  const intensity = Math.max(effectiveLight.intensity, 0);
-
+type Props = { light: LightState; lightingMode: LightingMode; modelFit: ModelFitState | null; mobile: boolean; floor: FloorState };
+export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: Props) {
+  const { scene, invalidate, gl } = useThree();
+  const height = modelFit?.size.y || 4;
+  const radius = modelFit?.radius || 3;
+  const center = modelFit?.center ?? DEFAULT_CENTER;
+  const target = useMemo(() => new Object3D(), []);
+  const environment = useMemo(() => {
+    const texture = new GradientEquirectTexture(128);
+    texture.topColor.set("#ffffff");
+    texture.bottomColor.set(floor.color).multiplyScalar(floor.reflectance);
+    texture.exponent = 2;
+    texture.update();
+    return texture;
+  }, [floor.color, floor.reflectance]);
+  const spread = lightingMode === "broad-zenithal" ? light.spread : 0;
+  const environmentStrength = light.environmentIntensity + spread * light.intensity * 0.55;
   useEffect(() => {
-    const directional = lightRef.current;
-    const targetObject = targetRef.current;
-
-    if (!directional || !targetObject) {
-      return;
-    }
-
-    directional.target = targetObject;
-    scene.add(targetObject);
-
-    return () => {
-      scene.remove(targetObject);
-    };
-  }, [scene]);
-
-  useLayoutEffect(() => {
-    if (!lightRef.current || !targetRef.current) {
-      return;
-    }
-
-    const directional = lightRef.current;
-    const targetObject = targetRef.current;
-    const shadow = directional.shadow;
-    const shadowCamera = shadow.camera;
-    const previousShadowMapSize = previousShadowMapSizeRef.current;
-
-    if (previousShadowMapSize !== null && previousShadowMapSize !== shadowMapSize) {
-      shadow.dispose();
-    }
-    previousShadowMapSizeRef.current = shadowMapSize;
-
-    directional.position.set(lightPositionX, lightPositionY, lightPositionZ);
-    targetObject.position.set(targetX, targetY, targetZ);
-    directional.target = targetObject;
-    targetObject.updateMatrixWorld();
-    directional.target.updateMatrixWorld();
-
-    shadowCamera.near = shadowConfig.near;
-    shadowCamera.far = shadowConfig.far;
-    shadowCamera.left = shadowConfig.left;
-    shadowCamera.right = shadowConfig.right;
-    shadowCamera.top = shadowConfig.top;
-    shadowCamera.bottom = shadowConfig.bottom;
-    shadowCamera.updateProjectionMatrix();
-    shadow.mapSize.set(shadowMapSize, shadowMapSize);
-    shadow.radius = shadowRadius;
-    shadow.bias = shadowBias;
-    shadow.needsUpdate = true;
-  }, [
-    lightPositionX,
-    lightPositionY,
-    lightPositionZ,
-    shadowBias,
-    shadowConfig.bottom,
-    shadowConfig.far,
-    shadowConfig.left,
-    shadowConfig.near,
-    shadowConfig.right,
-    shadowConfig.top,
-    shadowMapSize,
-    shadowRadius,
-    targetX,
-    targetY,
-    targetZ,
-  ]);
-
-  return (
-    <directionalLight
-      ref={lightRef}
-      castShadow
-      position={[lightPositionX, lightPositionY, lightPositionZ]}
-      intensity={intensity}
-    >
-      <object3D ref={targetRef} />
-    </directionalLight>
-  );
+    scene.environment = environment;
+    return () => { scene.environment = null; environment.dispose(); };
+  }, [scene, environment]);
+  useEffect(() => {
+    scene.environmentIntensity = environmentStrength;
+    target.position.copy(center);
+    target.updateMatrixWorld();
+    gl.shadowMap.needsUpdate = true;
+    invalidate();
+  }, [scene, environmentStrength, target, center, gl, invalidate, light, lightingMode]);
+  const effective = resolveStudyLight(light, lightingMode);
+  const directionalDistance = radius * 4;
+  const position = sphericalToPosition(effective.azimuthDeg, effective.elevationDeg, lightingMode === "local" ? height * light.distance : directionalDistance).add(center);
+  const secondary = sphericalToPosition(light.secondaryAzimuthDeg, light.secondaryElevationDeg, directionalDistance).add(center);
+  const budget = mobile ? RENDER_BUDGETS.mobile : RENDER_BUDGETS.desktop;
+  const extent = radius * 1.25;
+  return <>
+    <primitive object={target} />
+    <SoftShadows size={light.shadowSoftness * 35} samples={budget.pcssSamples} />
+    {lightingMode === "local" ? <spotLight
+      position={position} target={target} intensity={light.intensity * (height * 2) ** 2}
+      angle={Math.PI / 3} penumbra={0.4} decay={2} castShadow
+      shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
+      shadow-camera-near={0.1} shadow-camera-far={height * 12}
+      shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
+      userData={{ sourceRadius: light.sourceSize * height }}
+    /> : <directionalLight
+      position={position} target={target} intensity={light.intensity * (1 - spread)} castShadow
+      shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
+      shadow-camera-left={-extent} shadow-camera-right={extent}
+      shadow-camera-top={extent} shadow-camera-bottom={-extent}
+      shadow-camera-near={0.1} shadow-camera-far={directionalDistance + radius * 3}
+      shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
+    />}
+    {lightingMode === "dual" && <directionalLight
+      position={secondary} target={target} intensity={light.intensity * light.secondaryIntensity} castShadow
+      shadow-mapSize={[budget.secondaryShadow, budget.secondaryShadow]}
+      shadow-camera-left={-extent} shadow-camera-right={extent}
+      shadow-camera-top={extent} shadow-camera-bottom={-extent}
+      shadow-camera-near={0.1} shadow-camera-far={directionalDistance + radius * 3}
+      shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
+    />}
+    {lightingMode === "reflected" && light.reflector && <mesh position={[0, height / 2, -height]}>
+      <planeGeometry args={[height * 2, height * 2]} />
+      <meshPhysicalMaterial color="#cccccc" roughness={1} metalness={0} specularIntensity={0} />
+    </mesh>}
+  </>;
 }

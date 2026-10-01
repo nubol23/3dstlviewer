@@ -32,7 +32,7 @@ describe("value ramp", () => {
       "Invalid value ramp band bias",
     );
     expect(() =>
-      assertValueRampState({ shadowLightness: 45, highlightLightness: 60, bandBias: 0 }),
+      assertValueRampState({ ...DEFAULT_VALUE_RAMP, shadowLightness: 45, highlightLightness: 60, bandBias: 0 }),
     ).toThrow("Invalid value ramp contrast");
   });
 });

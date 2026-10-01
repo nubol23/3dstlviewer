@@ -209,7 +209,7 @@ describe("light reducer lock semantics", () => {
     const lockedState = appReducer(state, { type: "toggle-lock" });
     const updatedLocked = appReducer(lockedState, {
       type: "set-lighting-mode",
-      lightingMode: "classic-top",
+      lightingMode: "broad-zenithal",
     });
 
     expect(updatedLocked).toBe(lockedState);
@@ -308,7 +308,7 @@ describe("persistence codec", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        version: 4,
+        version: 5,
         light: createInitialState().light,
         renderStyle: "not-a-style",
         valueStepCount: 5,
@@ -367,7 +367,7 @@ describe("persistence codec", () => {
     });
     state = appReducer(state, { type: "set-render-style", renderStyle: "stepped" });
     state = appReducer(state, { type: "set-value-step-count", valueStepCount: 8 });
-    state = appReducer(state, { type: "set-lighting-mode", lightingMode: "classic-top" });
+    state = appReducer(state, { type: "set-lighting-mode", lightingMode: "broad-zenithal" });
     const withPreset = appReducer(state, { type: "save-preset" });
     const changed = appReducer(withPreset, {
       type: "set-render-style",
@@ -378,26 +378,22 @@ describe("persistence codec", () => {
       presetId: withPreset.presets[0]?.id ?? "missing",
     });
 
-    expect(restored.valueRamp).toEqual({
-      shadowLightness: 24,
-      highlightLightness: 92,
-      bandBias: 0.12,
-    });
+    expect(restored.valueRamp).toEqual(state.valueRamp);
     expect(restored.renderStyle).toBe("stepped");
     expect(restored.valueStepCount).toBe(8);
-    expect(restored.lightingMode).toBe("classic-top");
+    expect(restored.lightingMode).toBe("broad-zenithal");
   });
 
   it("applies artist lighting setups with their intended direction and fill", () => {
-    const setup = LIGHT_SETUPS.find((candidate) => candidate.id === "dramatic-side");
+    const setup = LIGHT_SETUPS.find((candidate) => candidate.id === "zenithal");
     const state = appReducer(createInitialState(), {
       type: "apply-light-setup",
-      setupId: "dramatic-side",
+      setupId: "zenithal",
     });
 
     expect(setup).toBeDefined();
-    expect(state.light.elevationDeg).toBe(35);
-    expect(state.light.bounceStrength).toBe(0.08);
-    expect(state.lightingMode).toBe("directional");
+    expect(state.light.elevationDeg).toBe(90);
+    expect(state.light.environmentIntensity).toBe(0.12);
+    expect(state.lightingMode).toBe("zenithal");
   });
 });
