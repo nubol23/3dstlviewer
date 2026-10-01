@@ -6,7 +6,7 @@ import type CameraControlsType from "camera-controls";
 import { Box3, Color, PCFShadowMap, Vector3 } from "three";
 import { Floor } from "./Floor";
 import { SceneLighting } from "./SceneLighting";
-import { StudyPipeline } from "./StudyPipeline";
+import { StudyPipeline, type RefinementApi, type RefinementStatus } from "./StudyPipeline";
 import { StlModel } from "./StlModel";
 import type { AppState } from "../types";
 
@@ -25,9 +25,11 @@ const DEFAULT_POSITION = new Vector3(4.2, 2.8, 5.2);
 
 export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(function ViewerCanvas({ state }, ref) {
   const controlsRef = useRef<CameraControlsType | null>(null);
-  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 767px), (pointer: coarse)").matches);
+  const refinementRef = useRef<RefinementApi | null>(null);
+  const [refinement, setRefinement] = useState<RefinementStatus>({ available: false, phase: "preview", samples: 0, progress: 0 });
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 1024px), (pointer: coarse)").matches);
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 767px), (pointer: coarse)");
+    const query = window.matchMedia("(max-width: 1024px), (pointer: coarse)");
     const update = () => setMobile(query.matches);
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
@@ -62,6 +64,11 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
 
   return (
     <div className="viewer-shell" data-testid="viewer-shell">
+      {refinement.available && <div className="refinement-controls">
+        <span role="status" aria-live="polite">{refinement.phase === "preparing" ? `Preparing scene · ${Math.round(refinement.progress * 100)}%` : refinement.phase === "compiling" ? "Compiling shaders…" : refinement.phase === "sampling" ? `Refining · ${Math.floor(refinement.samples)}/64 samples` : refinement.phase === "done" ? `Refined · ${Math.floor(refinement.samples)} samples · budget reached` : refinement.phase === "error" ? `Refinement failed: ${refinement.message}` : "Preview"}</span>
+        {["preview", "done", "error"].includes(refinement.phase) && <button type="button" disabled={!state.model} onClick={() => { controlsRef.current?.stop(); refinementRef.current?.refine(); }}>Refine Lighting</button>}
+        {!["preview", "error"].includes(refinement.phase) && <button type="button" onClick={() => refinementRef.current?.stop()}>{refinement.phase === "done" ? "Back to Preview" : "Stop Refinement"}</button>}
+      </div>}
       <Canvas
         shadows
         frameloop="demand"
@@ -85,7 +92,7 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
         />
         <Floor floor={state.floor} modelFit={state.model?.fit ?? null} />
         <StlModel model={state.model} />
-        <StudyPipeline state={state} mobile={mobile} />
+        <StudyPipeline ref={refinementRef} state={state} mobile={mobile} onStatus={setRefinement} />
         {!state.model && <EmptyStudyForm />}
       </Canvas>
     </div>

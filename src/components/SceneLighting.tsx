@@ -3,7 +3,8 @@ import { useEffect, useMemo } from "react";
 import { SoftShadows } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { Object3D, Vector3 } from "three";
-import { GradientEquirectTexture } from "three-gpu-pathtracer";
+import { GradientEquirectTexture } from "three-gpu-pathtracer/src/textures/GradientEquirectTexture.js";
+import { PhysicalSpotLight } from "three-gpu-pathtracer/src/objects/PhysicalSpotLight.js";
 import type { LightingMode, LightState, ModelFitState, FloorState } from "../types";
 import { RENDER_BUDGETS, resolveStudyLight, sphericalToPosition } from "../lib/light";
 
@@ -16,6 +17,8 @@ export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: 
   const radius = modelFit?.radius || 3;
   const center = modelFit?.center ?? DEFAULT_CENTER;
   const target = useMemo(() => new Object3D(), []);
+  const spotlight = useMemo(() => new PhysicalSpotLight(), []);
+  useEffect(() => () => spotlight.dispose(), [spotlight]);
   const environment = useMemo(() => {
     const texture = new GradientEquirectTexture(128);
     texture.topColor.set("#ffffff");
@@ -46,13 +49,12 @@ export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: 
   return <>
     <primitive object={target} />
     <SoftShadows size={light.shadowSoftness * 35} samples={budget.pcssSamples} />
-    {lightingMode === "local" ? <spotLight
+    {lightingMode === "local" ? <primitive object={spotlight} radius={light.sourceSize * height}
       position={position} target={target} intensity={light.intensity * (height * 2) ** 2}
       angle={Math.PI / 3} penumbra={0.4} decay={2} castShadow
       shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
       shadow-camera-near={0.1} shadow-camera-far={height * 12}
       shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
-      userData={{ sourceRadius: light.sourceSize * height }}
     /> : <directionalLight
       position={position} target={target} intensity={light.intensity * (1 - spread)} castShadow
       shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}

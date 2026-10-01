@@ -42,7 +42,9 @@ label {
 
 .app-shell {
   position: relative;
+  height: 100dvh;
   min-height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -793,34 +795,8 @@ input:disabled,
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 620px;
+  min-height: 0;
   overflow: hidden;
-}
-
-.band-status {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  z-index: 2;
-  transform: translateX(-50%);
-  border: 1px solid rgba(88, 213, 208, 0.42);
-  border-radius: 999px;
-  background: rgba(11, 15, 19, 0.86);
-  color: var(--text);
-  padding: 7px 11px;
-  font-size: 12px;
-  pointer-events: none;
-  backdrop-filter: blur(6px);
-}
-
-.band-status--fast {
-  border-color: rgba(255, 181, 29, 0.48);
-  color: #ffe1a0;
-}
-
-.band-status--error {
-  border-color: rgba(255, 111, 106, 0.55);
-  color: #ffc0bd;
 }
 
 .viewer-shell canvas {
@@ -1005,4 +981,26 @@ input:disabled,
 
 @media (max-width: 767px) {
   .mobile-sheet .sun-dome__title { display: none; }
+}
+
+.refinement-controls {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #11161be8;
+  font-size: 12px;
+}
+
+@media (max-width: 1024px), (pointer: coarse) {
+  .refinement-only { display: none; }
 }

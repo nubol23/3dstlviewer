@@ -6,6 +6,10 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "on-first-retry",
+    ...(process.env.PLAYWRIGHT_GPU === "1" ? {
+      channel: "chrome",
+      launchOptions: { args: ["--enable-gpu", "--use-angle=gl", "--ignore-gpu-blocklist"] },
+    } : {}),
   },
   webServer: {
     command: "npm run dev",

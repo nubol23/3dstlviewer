@@ -7,3 +7,10 @@ declare module "n8ao" {
     setQualityMode(mode: "Low" | "Medium"): void;
   }
 }
+
+declare module "three-gpu-pathtracer/src/textures/GradientEquirectTexture.js" {
+  export { GradientEquirectTexture } from "three-gpu-pathtracer";
+}
+declare module "three-gpu-pathtracer/src/objects/PhysicalSpotLight.js" {
+  export { PhysicalSpotLight } from "three-gpu-pathtracer";
+}

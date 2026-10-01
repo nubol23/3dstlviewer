@@ -106,3 +106,19 @@ self-shadowing stays enabled. Ground Reflectance controls floor albedo and the
 gradient's lower-hemisphere approximation; refinement calculates ground bounce.
 The ground remains present in traced visibility because that affects illumination
 reaching the model.
+
+## Backend result
+
+The full 1,968,612-triangle bust passed the same-context WebGL spike. Initial
+scene/BVH preparation took 13.94 seconds, first sample 1.02 seconds afterward,
+and a five-second sampling interval produced 33.67 samples at the spike's half
+resolution. Main-browser reported peak heap was 2.61 GB; this is not total GPU
+or worker memory. WebGL refinement is selected. The WebGPU fork is not shipped.
+
+The integrated tier uses a 960-pixel longest-edge cap, three path bounces, and
+64 samples or five seconds after the first sample. Shader compilation and scene
+preparation are reported separately. It reuses the package's DenoiseMaterial
+before the same AgX/value passes. Software renderers and mobile devices do not
+expose refinement. Known software renderers can support WebGL while still being
+unusable for the large path-tracing shader, so float-buffer support alone is not
+a sufficient feature check.

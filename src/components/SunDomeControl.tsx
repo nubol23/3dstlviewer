@@ -272,13 +272,13 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
           formatValue={(value) => value.toFixed(2)}
         />
         {lightingMode === "broad-zenithal" && <RangeControl label="Zenithal Spread" min={0} max={1} step={0.01} value={light.spread} onChange={spread => onChange({ spread })} disabled={disabled} />}
-        {lightingMode === "local" && <RangeControl label="Source Radius · Refined" min={0} max={1} step={0.01} value={light.sourceSize} onChange={sourceSize => onChange({ sourceSize })} disabled={disabled} formatValue={v => `${v.toFixed(2)}× height`} />}
+        {lightingMode === "local" && <div className="refinement-only"><RangeControl label="Source Radius · Refined" min={0} max={1} step={0.01} value={light.sourceSize} onChange={sourceSize => onChange({ sourceSize })} disabled={disabled} formatValue={v => `${v.toFixed(2)}× height`} /></div>}
         {lightingMode === "dual" && <>
           <RangeControl label="Second Light Ratio" min={0} max={2} step={0.01} value={light.secondaryIntensity} onChange={secondaryIntensity => onChange({ secondaryIntensity })} disabled={disabled} />
           <RangeControl label="Second Azimuth" min={0} max={360} step={1} value={light.secondaryAzimuthDeg} onChange={secondaryAzimuthDeg => onChange({ secondaryAzimuthDeg })} disabled={disabled} />
           <RangeControl label="Second Elevation" min={-78} max={90} step={1} value={light.secondaryElevationDeg} onChange={secondaryElevationDeg => onChange({ secondaryElevationDeg })} disabled={disabled} />
         </>}
-        {lightingMode === "reflected" && <label className="control-hint"><input type="checkbox" checked={light.reflector} onChange={event => onChange({ reflector: event.target.checked })} disabled={disabled} /> Rear reflector · Refined</label>}
+        {lightingMode === "reflected" && <label className="control-hint refinement-only"><input type="checkbox" checked={light.reflector} onChange={event => onChange({ reflector: event.target.checked })} disabled={disabled} /> Rear reflector · Refined</label>}
         <p className="control-hint">Shadow softness applies to both lights. Environment fill is approximate in Preview.</p>
       </div>
     </section>

@@ -53,6 +53,7 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
           }
         : null,
       windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
     };
   });
 
@@ -64,6 +65,7 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
   expect(layout.viewport!.top).toBeGreaterThanOrEqual(0);
   expect(layout.viewport!.right).toBeLessThanOrEqual(layout.windowWidth + 1);
   expect(layout.viewport!.bottom).toBeGreaterThan(layout.viewport!.top);
+  expect(layout.viewport!.bottom).toBeLessThanOrEqual(layout.windowHeight + 1);
 }
 
 async function selectRenderStyle(
@@ -340,4 +342,31 @@ test("updates independent lights and screen-space values through the study contr
   await page.reload();
   await expect(page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first()).toHaveValue("3");
   await expect(page.getByRole("combobox", { name: "Lighting model", exact: true }).first()).toHaveValue("local");
+});
+
+test("refines on desktop, keeps value edits, resets on light edits, and excludes mobile", async ({ page }) => {
+  test.setTimeout(60000);
+  await page.goto("/");
+  await expect(page.locator("canvas")).toBeVisible();
+  const softwareRenderer = await page.locator("canvas").evaluate(canvas => {
+    const gl = canvas.getContext("webgl2")!;
+    const debug = gl.getExtension("WEBGL_debug_renderer_info");
+    return debug ? /SwiftShader|llvmpipe|software/i.test(String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))) : false;
+  });
+  test.skip(softwareRenderer, "Refinement requires a hardware renderer; run with PLAYWRIGHT_GPU=1 on a GPU host");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  const status = page.locator(".refinement-controls [role=status]");
+  await expect(status).toContainText("Refined", { timeout: 45000 });
+  await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
+  await expect(status).toContainText("Refined");
+  await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("4");
+  await expect(status).toHaveText("Preview");
+  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  await page.getByRole("button", { name: "Stop Refinement", exact: true }).click();
+  await expect(status).toHaveText("Preview");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Refine Lighting", exact: true })).toHaveCount(0);
 });
