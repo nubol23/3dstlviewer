@@ -229,6 +229,7 @@ function ValueRampControl({
         testId={`${testIdPrefix}-highlight-value-slider`}
         formatValue={(value) => value.toFixed(0)}
       />
+      <label className="control-hint"><input type="checkbox" checked={valueRamp.grayscale} onChange={e => onChange({ grayscale: e.target.checked })} /> Neutral Grayscale</label>
       <RangeControl label="Exposure" min={0.1} max={4} step={0.05} value={valueRamp.exposure} onChange={exposure => onChange({ exposure })} />
       <RangeControl label="Smoothing Radius" min={0} max={4} step={0.25} value={valueRamp.smoothingRadius} onChange={smoothingRadius => onChange({ smoothingRadius })} formatValue={v => `${v.toFixed(2)} px`} />
       <RangeControl
@@ -243,8 +244,8 @@ function ValueRampControl({
       />
       {renderStyle === "stepped" && <details><summary>Band thresholds</summary>
         {valueRamp.thresholds.map((threshold, index) => <RangeControl
-          key={index} label={`Boundary ${index + 1}`} min={index ? valueRamp.thresholds[index - 1] + 0.01 : 0.01}
-          max={index < valueRamp.thresholds.length - 1 ? valueRamp.thresholds[index + 1] - 0.01 : 0.99}
+          key={index} label={`Boundary ${index + 1}`} min={index ? Math.round((valueRamp.thresholds[index - 1] + 0.01) * 100) / 100 : 0.01}
+          max={index < valueRamp.thresholds.length - 1 ? Math.round((valueRamp.thresholds[index + 1] - 0.01) * 100) / 100 : 0.99}
           step={0.01} value={threshold} onChange={value => onChange({ thresholds: valueRamp.thresholds.map((v, i) => i === index ? value : v) })}
         />)}
       </details>}
@@ -563,16 +564,6 @@ export function AppShell({
               <span>Floor Color</span>
               <input type="color" value={state.floor.color} onChange={(event) => setFloor({ color: event.target.value })} />
             </label>
-            <RangeControl
-              label="Material Roughness"
-              min={0.05}
-              max={1}
-              step={0.01}
-              value={state.floor.roughness}
-              onChange={(value) => setFloor({ roughness: value })}
-              testId="floor-roughness-slider"
-              formatValue={(value) => value.toFixed(2)}
-            />
           </section>
 
           <section className="panel-section">
@@ -773,16 +764,6 @@ export function AppShell({
                     onChange={(event) => setFloor({ color: event.target.value })}
                   />
                 </label>
-                <RangeControl
-                  label="Material Roughness"
-                  min={0.05}
-                  max={1}
-                  step={0.01}
-                  value={state.floor.roughness}
-                  onChange={(value) => setFloor({ roughness: value })}
-                  testId="mobile-floor-roughness-slider"
-                  formatValue={(value) => value.toFixed(2)}
-                />
               </section>
             </div>
           </Tabs.Content>

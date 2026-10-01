@@ -13,7 +13,7 @@ import type {
   ValueStepCount,
 } from "./types";
 import { assertValueRenderStyle, assertValueStepCount } from "./lib/valueMode";
-import { assertValueRampState, DEFAULT_VALUE_RAMP } from "./lib/valueRamp";
+import { assertValueRampState, DEFAULT_VALUE_RAMP, defaultThresholds } from "./lib/valueRamp";
 import { createUuid } from "./lib/uuid";
 
 export const STORAGE_KEY = "stl-value-viewer:v1";
@@ -23,18 +23,19 @@ export const DEFAULT_LIGHT: LightState = {
   environmentIntensity: 0.25, spread: 0.5, shadowSoftness: 0.35,
   secondaryIntensity: 0.45, secondaryAzimuthDeg: 135, secondaryElevationDeg: 35,
   sourceSize: 0.15, reflector: false, locked: false,
+  keyColor: "#ffffff", secondaryColor: "#ffffff", environmentColor: "#ffffff",
 };
 export const DEFAULT_RENDER_STYLE: ValueRenderStyle = "smooth";
 export const DEFAULT_VALUE_STEP_COUNT: ValueStepCount = 5;
 export const DEFAULT_LIGHTING_MODE: LightingMode = "directional";
-export const DEFAULT_FLOOR: FloorState = { color: "#888888", roughness: 1, reflectance: 0.5 };
+export const DEFAULT_FLOOR: FloorState = { color: "#888888", reflectance: 0.5 };
 export type LightSetup = {
   id: string; name: string; description: string;
   light: LightState; lightingMode: LightingMode;
 };
 export const LIGHT_SETUPS: readonly LightSetup[] = [
   { id: "zenithal", name: "Strict Zenithal", description: "Concentrated overhead light.", lightingMode: "zenithal", light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, environmentIntensity: 0.12 } },
-  { id: "broad-zenithal", name: "Broad Zenithal", description: "Overhead light blended with an all-around gradient environment.", lightingMode: "broad-zenithal", light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, spread: 0.65 } },
+  { id: "broad-zenithal", name: "Broad Zenithal", description: "Overhead light blended with an all-around gradient environment.", lightingMode: "broad-zenithal", light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, spread: 0.4, environmentIntensity: 0.15 } },
   { id: "directional", name: "Directional", description: "Upper-front-left key.", lightingMode: "directional", light: { ...DEFAULT_LIGHT } },
   { id: "local", name: "Local Studio", description: "Nearby lamp with distance falloff.", lightingMode: "local", light: { ...DEFAULT_LIGHT, distance: 2, intensity: 3 } },
   { id: "dual", name: "Double Directional", description: "Two independently shadowed lights.", lightingMode: "dual", light: { ...DEFAULT_LIGHT } },
@@ -83,7 +84,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, renderStyle: action.renderStyle };
     case "set-value-step-count":
       assertValueStepCount(action.valueStepCount);
-      return { ...state, valueStepCount: action.valueStepCount, valueRamp: { ...state.valueRamp, thresholds: Array.from({ length: action.valueStepCount - 1 }, (_, i) => (i + 1) / action.valueStepCount) } };
+      return { ...state, valueStepCount: action.valueStepCount, valueRamp: { ...state.valueRamp, thresholds: defaultThresholds(action.valueStepCount) } };
     case "set-value-ramp": {
       const valueRamp = assertValueRampState({ ...state.valueRamp, ...action.patch });
       if (valueRamp.thresholds.length !== state.valueStepCount - 1) throw new Error("Band threshold count must match the value count");
@@ -173,7 +174,7 @@ type PersistableAppState = Pick<
 
 export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
-    version: 5,
+    version: 6,
     light: state.light,
     renderStyle: state.renderStyle,
     valueStepCount: state.valueStepCount,
@@ -263,6 +264,9 @@ const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object({
   secondaryElevationDeg: numberRangeSchema("secondary elevation", -78, 90),
   sourceSize: numberRangeSchema("source size", 0, 1),
   reflector: z.boolean(),
+  keyColor: FLOOR_COLOR_SCHEMA,
+  secondaryColor: FLOOR_COLOR_SCHEMA,
+  environmentColor: FLOOR_COLOR_SCHEMA,
   shadowSoftness: numberRangeSchema("light shadow softness", 0, 1),
   locked: z.boolean({ error: (issue) => `Invalid light locked: ${String(issue.input)}` }),
 });
@@ -270,7 +274,6 @@ const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object({
 const FLOOR_STATE_SCHEMA: z.ZodType<FloorState> = z.object({
   color: FLOOR_COLOR_SCHEMA,
   reflectance: numberRangeSchema("ground reflectance", 0, 1),
-  roughness: numberRangeSchema("floor roughness", 0.05, 1),
 });
 
 const PRESET_RECORD_SCHEMA = z.looseObject({}, { error: "Invalid preset: expected object" });
@@ -331,7 +334,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     value,
     "Invalid persisted viewer state",
   );
-  parseSchema(z.literal(5), persisted.version, "Unsupported persisted viewer state version");
+  parseSchema(z.literal(6), persisted.version, "Unsupported persisted viewer state version");
   assertValueRenderStyle(persisted.renderStyle);
   assertValueStepCount(persisted.valueStepCount);
   const presets = parseSchema(
@@ -344,7 +347,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
 
   if (assertValueRampState(persisted.valueRamp).thresholds.length !== persisted.valueStepCount - 1) throw new Error("Invalid persisted threshold count");
   return {
-    version: 5,
+    version: 6,
     light: assertLightState(persisted.light),
     renderStyle: persisted.renderStyle,
     valueStepCount: persisted.valueStepCount,

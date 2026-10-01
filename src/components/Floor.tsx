@@ -12,7 +12,7 @@ export function Floor({ floor, modelFit }: FloorProps) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.002, 0]} data-testid="study-floor">
       <planeGeometry args={[size, size]} />
-      <meshPhysicalMaterial color={new Color(floor.color).multiplyScalar(floor.reflectance)} roughness={floor.roughness} metalness={0} specularIntensity={0} />
+      <meshPhysicalMaterial color={new Color(floor.color).multiplyScalar(floor.reflectance)} roughness={1} metalness={0} specularIntensity={0} />
     </mesh>
   );
 }

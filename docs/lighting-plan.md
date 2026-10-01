@@ -122,3 +122,10 @@ before the same AgX/value passes. Software renderers and mobile devices do not
 expose refinement. Known software renderers can support WebGL while still being
 unusable for the large path-tracing shader, so float-buffer support alone is not
 a sufficient feature check.
+
+Color controls set each source, the environment's upper gradient, and the floor
+independently. Neutral Grayscale compares the same rendered lightness without
+rebuilding illumination. Colored value studies move toward white/black to reach
+the requested study lightness without clipping saturated RGB channels; this is
+an artistic presentation, not extra light transport. Persistence version 6
+includes these fields and drops all older records without a compatibility path.

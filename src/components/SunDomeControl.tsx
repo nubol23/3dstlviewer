@@ -279,6 +279,9 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
           <RangeControl label="Second Elevation" min={-78} max={90} step={1} value={light.secondaryElevationDeg} onChange={secondaryElevationDeg => onChange({ secondaryElevationDeg })} disabled={disabled} />
         </>}
         {lightingMode === "reflected" && <label className="control-hint refinement-only"><input type="checkbox" checked={light.reflector} onChange={event => onChange({ reflector: event.target.checked })} disabled={disabled} /> Rear reflector · Refined</label>}
+        <label className="floor-color"><span>Key Color</span><input aria-label="Key Color" type="color" value={light.keyColor} disabled={disabled} onChange={e => onChange({ keyColor: e.target.value })} /></label>
+        {lightingMode === "dual" && <label className="floor-color"><span>Second Light Color</span><input aria-label="Second Light Color" type="color" value={light.secondaryColor} disabled={disabled} onChange={e => onChange({ secondaryColor: e.target.value })} /></label>}
+        <label className="floor-color"><span>Environment Color</span><input aria-label="Environment Color" type="color" value={light.environmentColor} disabled={disabled} onChange={e => onChange({ environmentColor: e.target.value })} /></label>
         <p className="control-hint">Shadow softness applies to both lights. Environment fill is approximate in Preview.</p>
       </div>
     </section>

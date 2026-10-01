@@ -12,11 +12,6 @@ export function resolveStudyLight(light: LightState, mode: LightingMode): LightS
   return mode === "zenithal" || mode === "broad-zenithal" ? { ...light, azimuthDeg: 0, elevationDeg: 90 } : light;
 }
 
-export function lightPoseFromState(light: Pick<LightState, "azimuthDeg" | "elevationDeg" | "distance">, target = new Vector3()) {
-  const position = sphericalToPosition(light.azimuthDeg, light.elevationDeg, light.distance).add(target);
-  return { position, direction: target.clone().sub(position).normalize() };
-}
-
 export const RENDER_BUDGETS = {
   mobile: { dpr: 1, primaryShadow: 1024, secondaryShadow: 512, pcssSamples: 8, aoQuality: "Low" },
   desktop: { dpr: 1.5, primaryShadow: 2048, secondaryShadow: 1024, pcssSamples: 16, aoQuality: "Medium" },

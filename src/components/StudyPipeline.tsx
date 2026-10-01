@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { BlendFunction, EffectComposer, EffectPass, RenderPass, TextureEffect, ToneMappingEffect, ToneMappingMode } from "postprocessing";
+import { BlendFunction, EffectComposer, EffectPass, RenderPass, SMAAEffect, SMAAPreset, TextureEffect, ToneMappingEffect, ToneMappingMode } from "postprocessing";
 import { N8AOPostPass } from "n8ao";
 import { HalfFloatType, Matrix4, NoToneMapping } from "three";
 import type { AppState } from "../types";
@@ -17,6 +17,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
   const context = gl.getContext();
   const debugInfo = context.getExtension("WEBGL_debug_renderer_info");
   const driver = debugInfo ? String(context.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : "";
+  const reflectorPresent = state.lightingMode === "reflected" && state.light.reflector;
   const available = !mobile && gl.extensions.has("EXT_color_buffer_float") && !/SwiftShader|llvmpipe|software/i.test(driver);
   const pipeline = useRef<{ composer: EffectComposer; values: ValueStudyEffect; ao: N8AOPostPass; replacement: EffectPass; texture: TextureEffect } | null>(null);
   const session = useRef<Session | null>(null);
@@ -97,6 +98,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
     composer.addPass(replacement);
     composer.addPass(new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX })));
     composer.addPass(new EffectPass(camera, values));
+    composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: mobile ? SMAAPreset.LOW : SMAAPreset.MEDIUM })));
     pipeline.current = { composer, values, ao, replacement, texture };
     invalidate();
     return () => {
@@ -117,7 +119,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
   useEffect(() => {
     preview(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.model, state.light.reflector]);
+  }, [state.model, reflectorPresent]);
   useEffect(() => {
     preview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,9 +150,16 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
               job.current.sampleStart = now;
               performance.measure("study:first-sample", { start: job.current.preparedAt, end: now });
             }
-            resources.texture.texture = active.tracer.target.texture;
-            resources.replacement.enabled = true; resources.ao.enabled = false; active.denoise.enabled = true;
+            if (samples >= active.tracer.minSamples) {
+              resources.texture.texture = active.tracer.target.texture;
+              resources.replacement.enabled = true; resources.ao.enabled = false; active.denoise.enabled = true;
+            }
             const finished = samples >= 64 || now - job.current.sampleStart >= 5000;
+            if (finished && samples < active.tracer.minSamples) {
+              preview();
+              report("error", samples, 0, "The time budget ended before a complete sample. Preview remains active.");
+              return;
+            }
             if (finished || now - job.current.lastReport > 150) {
               report(finished ? "done" : "sampling", samples);
               job.current.lastReport = now;

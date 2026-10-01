@@ -285,7 +285,7 @@ describe("reducer fail-fast validation", () => {
     expect(() => appReducer(state, { type: "set-active-tab", activeTab: "missing" as never })).toThrow("Unsupported active tab");
     expect(() => appReducer(state, { type: "set-light", patch: { intensity: Number.NaN } })).toThrow("Invalid light intensity");
     expect(() => appReducer(state, { type: "set-value-ramp", patch: { bandBias: Infinity } })).toThrow("Invalid value ramp band bias");
-    expect(() => appReducer(state, { type: "set-floor", patch: { roughness: Infinity } })).toThrow("Invalid floor roughness");
+    expect(() => appReducer(state, { type: "set-floor", patch: { reflectance: Infinity } })).toThrow("Invalid ground reflectance");
   });
 });
 
@@ -308,13 +308,13 @@ describe("persistence codec", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        version: 5,
+        version: 6,
         light: createInitialState().light,
         renderStyle: "not-a-style",
         valueStepCount: 5,
         valueRamp: DEFAULT_VALUE_RAMP,
         lightingMode: DEFAULT_LIGHTING_MODE,
-        floor: { color: "#000", roughness: 1 },
+        floor: { color: "#000", reflectance: 1 },
         presets: [],
       }),
     );
@@ -333,7 +333,7 @@ describe("persistence codec", () => {
         valueStepCount: DEFAULT_VALUE_STEP_COUNT,
         valueRamp: DEFAULT_VALUE_RAMP,
         lightingMode: DEFAULT_LIGHTING_MODE,
-        floor: { color: "#000", roughness: 1 },
+        floor: { color: "#000", reflectance: 1 },
         presets: [],
       }),
     );
@@ -351,7 +351,7 @@ describe("persistence codec", () => {
         valueMode: "five-step",
         valueRamp: DEFAULT_VALUE_RAMP,
         zenithalStudy: false,
-        floor: { color: "#000", roughness: 1 },
+        floor: { color: "#000", reflectance: 1 },
         presets: [],
       }),
     );

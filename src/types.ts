@@ -37,6 +37,9 @@ export type LightState = {
   secondaryElevationDeg: number;
   sourceSize: number;
   reflector: boolean;
+  keyColor: string;
+  secondaryColor: string;
+  environmentColor: string;
   shadowSoftness: number;
   locked: boolean;
 };
@@ -69,7 +72,6 @@ export type LoadedModel = {
 export type FloorState = {
   reflectance: number;
   color: string;
-  roughness: number;
 };
 
 export type ValueRampState = {
@@ -79,6 +81,7 @@ export type ValueRampState = {
   exposure: number;
   smoothingRadius: number;
   thresholds: number[];
+  grayscale: boolean;
 };
 
 export type LightPreset = {
@@ -93,7 +96,7 @@ export type LightPreset = {
 };
 
 export type PersistedViewerState = {
-  version: 5;
+  version: 6;
   light: LightState;
   renderStyle: ValueRenderStyle;
   valueStepCount: ValueStepCount;

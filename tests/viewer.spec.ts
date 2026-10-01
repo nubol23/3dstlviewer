@@ -1,9 +1,13 @@
 import { fileURLToPath } from "node:url";
+import { PNG } from "pngjs";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
 const test = base.extend<{ assertNoConsoleErrors: void }>({
   assertNoConsoleErrors: [
     async ({ page }, use) => {
+      // Chrome requests an optional favicon; keep that unrelated browser request
+      // out of the renderer's console-error acceptance gate.
+      await page.route("**/favicon.ico", route => route.fulfill({ status: 204, body: "" }));
       const consoleErrors: string[] = [];
       page.on("console", (message) => {
         if (message.type() === "error") {
@@ -336,6 +340,13 @@ test("updates independent lights and screen-space values through the study contr
   await selectValueCount(page.getByTestId("value-study-control"), 3);
   await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first().fill("3");
   await page.getByTestId("desktop-value-ramp-control").getByText("Band thresholds").click();
+  await selectValueCount(page.getByTestId("value-study-control"), 5);
+  await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.2");
+  await page.getByRole("slider", { name: "Boundary 2", exact: true }).first().fill("0.21");
+  await page.getByRole("slider", { name: "Boundary 3", exact: true }).first().fill("0.22");
+  await expect(page.getByRole("slider", { name: "Boundary 2", exact: true }).first()).toBeDisabled();
+  await page.getByRole("slider", { name: "Boundary 3", exact: true }).first().fill("0.6");
+  await selectValueCount(page.getByTestId("value-study-control"), 3);
   await expect(page.getByRole("slider", { name: "Boundary 1", exact: true }).first()).toBeVisible();
   await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.25");
   await page.getByRole("button", { name: "Save", exact: true }).first().click();
@@ -356,9 +367,22 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
   test.skip(softwareRenderer, "Refinement requires a hardware renderer; run with PLAYWRIGHT_GPU=1 on a GPU host");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
   await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  const previewPixels = PNG.sync.read(await page.locator("canvas").screenshot());
   await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
   const status = page.locator(".refinement-controls [role=status]");
   await expect(status).toContainText("Refined", { timeout: 45000 });
+  const refinedPixels = PNG.sync.read(await page.locator("canvas").screenshot());
+  // Prove the displayed buffer is traced, not just a completed sample counter:
+  // native traced occlusion darkens the ground, which receives no raster shadow.
+  let shadowPixels = 0;
+  for (let y = Math.floor(previewPixels.height * 0.65); y < previewPixels.height; y++) {
+    for (let x = 0; x < previewPixels.width; x++) {
+      const offset = (y * previewPixels.width + x) * 4;
+      if (previewPixels.data[offset] - refinedPixels.data[offset] > 12) shadowPixels++;
+    }
+  }
+  expect(shadowPixels).toBeGreaterThan(previewPixels.width * previewPixels.height * 0.003);
   await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
   await expect(status).toContainText("Refined");
   await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("4");
@@ -369,4 +393,21 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(page.getByRole("button", { name: "Refine Lighting", exact: true })).toHaveCount(0);
+});
+
+test("compares colored lighting with neutral values and persists the colors", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await page.getByTestId("desktop-light-setup").selectOption("dual");
+  await page.getByLabel("Key Color", { exact: true }).first().fill("#ee7040");
+  await page.getByLabel("Second Light Color", { exact: true }).first().fill("#507add");
+  await page.getByLabel("Environment Color", { exact: true }).first().fill("#d0dfef");
+  const grayscale = await page.locator("canvas").screenshot();
+  await page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first().uncheck();
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(grayscale)).toBe(false);
+  await page.reload();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#507add");
+  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
 });

@@ -108,27 +108,6 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
   return { ...source, geometry, fit, orientation };
 }
 
-export async function parseStlFile(file: File): Promise<StlLoadResult> {
-  if (!file) {
-    throw new Error("Cannot parse STL: file is required");
-  }
-
-  if (typeof File === "undefined" || !(file instanceof File)) {
-    throw new Error("Cannot parse STL: expected a File object");
-  }
-
-  if (file.size <= 0) {
-    throw new Error(`Cannot parse STL: file "${file.name}" is empty`);
-  }
-
-  const arrayBuffer = await file.arrayBuffer();
-  return parseStlArrayBuffer({
-    arrayBuffer,
-    fileName: file.name,
-    fileSize: file.size,
-  });
-}
-
 export async function loadStlFile(file: File, options: { signal?: AbortSignal; onProgress?: (phase: string) => void } = {}): Promise<LoadedModel> {
   const started = performance.now();
   const arrayBuffer = await file.arrayBuffer();

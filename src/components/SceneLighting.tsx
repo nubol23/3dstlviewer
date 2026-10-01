@@ -21,14 +21,14 @@ export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: 
   useEffect(() => () => spotlight.dispose(), [spotlight]);
   const environment = useMemo(() => {
     const texture = new GradientEquirectTexture(128);
-    texture.topColor.set("#ffffff");
+    texture.topColor.set(light.environmentColor);
     texture.bottomColor.set(floor.color).multiplyScalar(floor.reflectance);
     texture.exponent = 2;
     texture.update();
     return texture;
-  }, [floor.color, floor.reflectance]);
+  }, [floor.color, floor.reflectance, light.environmentColor]);
   const spread = lightingMode === "broad-zenithal" ? light.spread : 0;
-  const environmentStrength = light.environmentIntensity + spread * light.intensity * 0.55;
+  const environmentStrength = light.environmentIntensity + spread * light.intensity * 0.3;
   useEffect(() => {
     scene.environment = environment;
     return () => { scene.environment = null; environment.dispose(); };
@@ -39,7 +39,7 @@ export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: 
     target.updateMatrixWorld();
     gl.shadowMap.needsUpdate = true;
     invalidate();
-  }, [scene, environmentStrength, target, center, gl, invalidate, light, lightingMode]);
+  }, [scene, environmentStrength, target, center, gl, invalidate, light, lightingMode, mobile]);
   const effective = resolveStudyLight(light, lightingMode);
   const directionalDistance = radius * 4;
   const position = sphericalToPosition(effective.azimuthDeg, effective.elevationDeg, lightingMode === "local" ? height * light.distance : directionalDistance).add(center);
@@ -50,13 +50,13 @@ export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: 
     <primitive object={target} />
     <SoftShadows size={light.shadowSoftness * 35} samples={budget.pcssSamples} />
     {lightingMode === "local" ? <primitive object={spotlight} radius={light.sourceSize * height}
-      position={position} target={target} intensity={light.intensity * (height * 2) ** 2}
+      position={position} target={target} color={light.keyColor} intensity={light.intensity * (height * 2) ** 2}
       angle={Math.PI / 3} penumbra={0.4} decay={2} castShadow
       shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
       shadow-camera-near={0.1} shadow-camera-far={height * 12}
       shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
     /> : <directionalLight
-      position={position} target={target} intensity={light.intensity * (1 - spread)} castShadow
+      position={position} target={target} color={light.keyColor} intensity={light.intensity * (1 - spread)} castShadow
       shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
       shadow-camera-left={-extent} shadow-camera-right={extent}
       shadow-camera-top={extent} shadow-camera-bottom={-extent}
@@ -64,7 +64,7 @@ export function SceneLighting({ light, lightingMode, modelFit, mobile, floor }: 
       shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
     />}
     {lightingMode === "dual" && <directionalLight
-      position={secondary} target={target} intensity={light.intensity * light.secondaryIntensity} castShadow
+      position={secondary} target={target} color={light.secondaryColor} visible={light.secondaryIntensity > 0} intensity={light.intensity * light.secondaryIntensity} castShadow
       shadow-mapSize={[budget.secondaryShadow, budget.secondaryShadow]}
       shadow-camera-left={-extent} shadow-camera-right={extent}
       shadow-camera-top={extent} shadow-camera-bottom={-extent}
