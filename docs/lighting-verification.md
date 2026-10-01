@@ -1,6 +1,6 @@
 # Lighting rewrite verification
 
-Verified on 2026-10-01. One branch and one PR; four implementation commit groups.
+Verified on 2026-10-01. One branch and one PR; four implementation commit groups plus the approved contrast correction.
 
 ## Reference scenes
 
@@ -49,12 +49,19 @@ Medium/Low. DPR caps are 1.5/1. Refinement is lazy, hardware-feature-detected,
 desktop only, three path bounces, longest edge capped at 960 pixels, and 64
 samples or five seconds after the first sample, whichever comes first.
 
-Broad zenithal's initial environment contribution was visually too flat. Its
-final default is spread 0.4 with restrained environment strength 0.15. Default
-band thresholds span the useful AgX midtone region; all thresholds remain
-adjustable. There is no auto-exposure or selectable tone curve.
+All six presets now use a stronger key/fill hierarchy and a shared Contrast
+control, default 2.2 (1 is neutral, maximum 3). Broad zenithal uses spread 0.35
+and environment strength 0.18. Manual exposure stays at 1; no auto-exposure or
+selectable tone curve. Default band thresholds are equally spaced after contrast
+shaping, giving five-band studies two shadow values below the midpoint.
+Smoothing defaults to 0.5 pixels. The library denoiser uses sigma 1.5, kSigma 1
+and threshold 0.12; sampling and resolution budgets are unchanged.
 
-## Measurements
+## Initial rewrite measurements
+
+These measurements precede the contrast correction. Geometry preparation, BVH,
+resolution and sampling budgets remain unchanged; they are not presented as a
+new benchmark of the adjusted defaults.
 
 Hardware: Intel Core i5-11400, 32 GiB RAM, NVIDIA RTX 3070 Ti, Linux X11,
 Google Chrome 153.0.8010.52 with hardware ANGLE/OpenGL. Production GitHub Pages
@@ -94,16 +101,19 @@ count or silent simplification is substituted for that missing measurement.
 
 - npm ci --no-audit --no-fund: passed from the repaired lockfile.
 - npm run lint: passed, zero lint warnings.
-- npm test: 72 passed across 8 files.
+- npm test: 73 passed across 8 files.
 - npm run build -- --mode github-pages: passed. Vite reports a large initial
   chunk warning; the initial JS is about 1.70 MB / 539 KB gzip, with refinement
   in a separate roughly 208 KB / 60 KB gzip chunk plus its worker.
-- Eight hardware-GPU Playwright tests passed against the static Pages build.
+- Nine hardware-GPU Playwright tests passed against the static Pages build.
   They cover import/orientation, mobile layout, stepped controls, independent
   lighting, distance changes, adjacent thresholds, persistence, refinement
   lifecycle and color/grayscale comparison. A pixel-based refinement regression
   proves traced occlusion reaches the displayed image; it fails with the old
   clipped denoiser camera and passes with the corrected fullscreen camera.
+  The contrast regression renders the existing small fixture with a nearby
+  studio source and checks increased separation plus retained dark gradations.
+  Persistence and retaining refinement during contrast edits are also covered.
   Optional favicon requests are routed
   only in tests, without unrelated production changes.
 - Both independent contract-scope and KISS reviews passed after fixing effective
@@ -119,6 +129,61 @@ without changing the original lighting. Two comparison galleries, full miniature
 and mobile stills, a 12.8-second orbit/control recording and raw metrics accompany
 the report. Render outputs and source models are not committed.
 
+## Contrast correction verification
+
+The follow-up capture set contains all six bust presets in continuous and
+stepped modes, both raster and refined. The full archer was checked in all six
+raster setups and in strict/broad zenithal and directional refinement, also in
+both value modes. A separate comparison viewer pairs the previous rewrite
+defaults with the revised defaults; original pre-rewrite evidence is retained.
+
+The comparison keeps the camera, model, background and AgX curve fixed. Raster
+directional light/shadow separation now comes from a stronger key/fill hierarchy
+and the bounded lightness curve. The curve preserves endpoints and midpoint and
+has positive slope throughout the supported range; it cannot create a flat
+black plateau in continuous mode. User-adjusted Band Bias can still intentionally
+clip values, and stepped mode deliberately collapses values into selected bands.
+
+Fixed rectangles on the 818×913 directional bust image quantify the change:
+lit cheek (350,295)–(383,329), shadow cheek (460,325)–(488,366), and shadowed neck
+(378,418)–(438,465). Values below are displayed 8-bit sRGB grayscale, not linear
+radiance or physical reflectance. Percentiles use 4×4 block averages to reduce
+the contribution of fine sampling noise.
+
+| Measurement | Previous raster | Revised raster | Previous refinement | Revised refinement |
+| --- | --- | --- | --- | --- |
+| Lit cheek mean minus shadow cheek mean | 87.6 | 142.5 | 73.7 | 123.5 |
+| Shadow cheek p10–p90 | 70.1–86.9 | 51.9–78.0 | 76.8–91.9 | 66.0–91.6 |
+| Shadowed neck p10–p90 | 56.0–72.2 | 41.2–53.8 | 70.9–76.2 | 68.9–91.1 |
+
+This demonstrates stronger separation while retaining broad tonal variation in
+the sampled shadows. It is an image comparison on these views, not a promise
+that every sculpt or light placement has the same histogram. The painted
+references guide the value hierarchy; the app still uses a uniform matte surface
+and does not reproduce painted textures or metallic highlights.
+
+The revised archer loaded in 2.99 s, including 0.75 s normal preparation. Scene
+extraction/BVH/upload took 11.54 s. With the browser already warm, the first
+sample followed 0.85 s later; subsequent lighting-only refinements started in
+about 16 ms. Each sampling interval lasted 5.01–5.02 s and reached 30–33 samples.
+A 90-move orbit gave 16.7/16.7 ms median/p95 animation-frame cadence and 0.5 ms
+median CPU submission. These are a warm-session follow-up, not a replacement for
+the fresh-session memory and startup measurements above. Bust captures reached
+30–33 samples under the same limit. A current orbit/control recording accompanies
+the comparisons.
+
+Current mobile emulation also loaded both meshes without decimation: bust load
+8.98 s / normals 1.20 s, archer load 6.37 s / normals 0.78 s. Both gave 16.7/16.7 ms
+median/p95 touch-orbit cadence; CPU submission medians were 3.4/1.8 ms. The
+Contrast slider worked in the View sheet, and neither the refinement button nor
+its bundle was present. This run uses the same 390×844, DPR 1, requested 4× CPU
+slowdown setup; timings vary with host load and are not physical-device results.
+
+The contrast follow-up passed independent contract-scope and KISS reviews.
+Six production files are needed to connect the single serialized control,
+calibrate presets and the existing filter, and update the persistence schema;
+there is no additional rendering framework, dependency, or migration path.
+
 ## Remaining approximations and limits
 
 - Raster environment and ground fill are approximate; screen-space AO cannot see
@@ -128,6 +193,8 @@ the report. Render outputs and source models are not committed.
   honored by the local spotlight in refinement. Directional sources remain
   infinitely distant and have hard traced shadows; raster PCSS is an artistic
   approximation and can differ from refinement.
+- Finite raster shadow maps can show fine-detail aliasing, particularly at the
+  lower mobile budget. Stronger value separation can make those artifacts visible.
 - Raster floor cast shadows are disabled. Model self-shadowing remains. Traced
   ground visibility remains physical because it affects reflected light.
 - Ground Reflectance scales the chosen floor color/albedo and the gradient's
@@ -149,7 +216,7 @@ the report. Render outputs and source models are not committed.
 ## Rollout
 
 The PR is not merged or deployed. Merging to main triggers the existing static
-GitHub Pages workflow. Persisted schema version 6 discards older settings and
+GitHub Pages workflow. Persisted schema version 7 discards older settings and
 presets without migration or notice. Reverting the PR restores the prior code;
 previous local settings discarded by the new schema cannot be recovered by code
 rollback alone.

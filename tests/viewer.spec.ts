@@ -339,6 +339,7 @@ test("updates independent lights and screen-space values through the study contr
   await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
   await selectValueCount(page.getByTestId("value-study-control"), 3);
   await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first().fill("3");
+  await page.getByRole("slider", { name: "Contrast", exact: true }).first().fill("2.6");
   await page.getByTestId("desktop-value-ramp-control").getByText("Band thresholds").click();
   await selectValueCount(page.getByTestId("value-study-control"), 5);
   await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.2");
@@ -352,6 +353,7 @@ test("updates independent lights and screen-space values through the study contr
   await page.getByRole("button", { name: "Save", exact: true }).first().click();
   await page.reload();
   await expect(page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first()).toHaveValue("3");
+  await expect(page.getByRole("slider", { name: "Contrast", exact: true }).first()).toHaveValue("2.6");
   await expect(page.getByRole("combobox", { name: "Lighting model", exact: true }).first()).toHaveValue("local");
 });
 
@@ -384,6 +386,7 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
   }
   expect(shadowPixels).toBeGreaterThan(previewPixels.width * previewPixels.height * 0.003);
   await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
+  await page.getByRole("slider", { name: "Contrast", exact: true }).first().fill("2.5");
   await expect(status).toContainText("Refined");
   await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("4");
   await expect(status).toHaveText("Preview");
@@ -410,4 +413,43 @@ test("compares colored lighting with neutral values and persists the colors", as
   await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
   await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#507add");
   await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+});
+
+test("increases value separation without flattening the illuminated shadows", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  // A close, low studio source produces a continuous illumination gradient on
+  // the existing small STL, so the test can inspect its darker value variations.
+  await page.getByTestId("desktop-light-setup").selectOption("local");
+  await page.getByRole("slider", { name: "Source Distance", exact: true }).first().fill("1");
+  await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("1");
+  await page.getByRole("slider", { name: "Elevation", exact: true }).first().fill("20");
+  const control = page.getByRole("slider", { name: "Contrast", exact: true }).first();
+  await expect(control).toHaveValue("2.2");
+  await control.fill("1");
+  const neutral = PNG.sync.read(await page.locator("canvas").screenshot({ path: test.info().outputPath("contrast-neutral.png") }));
+  await control.fill("2.2");
+  const painted = PNG.sync.read(await page.locator("canvas").screenshot({ path: test.info().outputPath("contrast-painted.png") }));
+  const shadowBefore: number[] = [], shadowAfter: number[] = [];
+  const lightBefore: number[] = [], lightAfter: number[] = [];
+  for (let y = Math.floor(neutral.height * 0.15); y < neutral.height * 0.85; y += 4) {
+    for (let x = Math.floor(neutral.width * 0.15); x < neutral.width * 0.85; x += 4) {
+      const offset = (y * neutral.width + x) * 4;
+      const r = neutral.data[offset], g = neutral.data[offset + 1], b = neutral.data[offset + 2];
+      // Ignore the tinted background and UI; compare identical rendered locations.
+      if (Math.abs(r - g) > 1 || Math.abs(g - b) > 1) continue;
+      if (r >= 60 && r <= 120) { shadowBefore.push(r); shadowAfter.push(painted.data[offset]); }
+      if (r >= 145 && r <= 205) { lightBefore.push(r); lightAfter.push(painted.data[offset]); }
+    }
+  }
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  expect(shadowAfter.length).toBeGreaterThan(50);
+  expect(lightAfter.length).toBeGreaterThan(50);
+  expect(mean(lightAfter) - mean(shadowAfter)).toBeGreaterThan(mean(lightBefore) - mean(shadowBefore) + 15);
+  // Shadow planes retain a useful range rather than collapsing to the dark endpoint.
+  shadowAfter.sort((a, b) => a - b);
+  expect(shadowAfter[Math.floor(shadowAfter.length * 0.95)] - shadowAfter[Math.floor(shadowAfter.length * 0.05)]).toBeGreaterThan(10);
+  expect(shadowAfter[Math.floor(shadowAfter.length * 0.01)]).toBeGreaterThan(25);
 });

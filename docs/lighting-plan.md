@@ -29,6 +29,10 @@ The four commit groups below must remain independently buildable and reviewable.
 - Continuous and 3–8-band views consume the same lighting output. Pre-quantization
   depth-aware smoothing replaces triangle island cleanup, exposed as one radius.
   Zero disables it; larger radii deliberately simplify small value regions.
+- One Contrast control adjusts perceptual lightness after smoothing and before
+  quantization in both tiers. Its bounded, monotonic curve separates the light
+  and shadow families while preserving gradations inside shadows. Exposure and
+  AgX remain fixed during orbiting; no histogram normalization is introduced.
 - Delete the custom lighting shader, band cleanup, worker, worker client,
   protocol, and their dedicated tests and UI plumbing.
 - Bump persisted state version; discard older settings/presets with no migration,
@@ -127,5 +131,34 @@ Color controls set each source, the environment's upper gradient, and the floor
 independently. Neutral Grayscale compares the same rendered lightness without
 rebuilding illumination. Colored value studies move toward white/black to reach
 the requested study lightness without clipping saturated RGB channels; this is
-an artistic presentation, not extra light transport. Persistence version 6
+an artistic presentation, not extra light transport. Persistence version 7
 includes these fields and drops all older records without a compatibility path.
+
+## Approved contrast correction
+
+The painted-miniature references require stronger value separation than the
+initial rewrite, including in directional and local studio lighting. Keep
+reflected illumination visible within the shadow family rather than clipping
+it to black. Apply this correction on the same branch and PR after the four
+original commit groups.
+
+Use the existing perceptual value effect for a symmetric rational contrast gain,
+with a default of 2.2 and a supported range of 1–3. A setting of 1 is neutral.
+Endpoints and midpoint stay fixed; the minimum slope is 1 / contrast, so dark
+gradations remain distinct before optional band quantization. Keep the existing
+8–94 output-lightness range and manual exposure of 1. Default five-band
+thresholds are 0.2, 0.4, 0.6 and 0.8, retaining two values below the midpoint.
+
+Increase the default key intensity to 5.5, use a subordinate second-source ratio
+of 0.3, and keep environment/ground fill for shadow definition. Broad zenithal
+uses spread 0.35 and environment strength 0.18; strict zenithal uses 0.18,
+directional/local/dual use 0.25, and reflected fill uses 0.35. Reduce default
+smoothing to 0.5 pixels and refine the existing library denoiser settings without
+changing its sampling or resolution budget. This is artistic value shaping,
+not a claim that uniform matte geometry reproduces painted texture or metallic
+highlights in the reference photographs.
+
+Verify continuous and stepped images on both reference sculpts. Check stronger
+light/shadow separation and retained shadow variation, persistence of the new
+control, and display-only adjustment of completed refinement. Bump persistence
+to version 7 and discard earlier presets without migration.

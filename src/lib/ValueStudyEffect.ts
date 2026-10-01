@@ -8,6 +8,7 @@ const fragment = `
 uniform float shadowValue;
 uniform float highlightValue;
 uniform float bandBias;
+uniform float contrast;
 uniform float smoothingRadius;
 uniform int steps;
 uniform bool stepped;
@@ -19,6 +20,13 @@ float lightness(vec3 color) {
 }
 float luminanceFromLightness(float l) {
   return l > 0.08 ? pow((l + 0.16) / 1.16, 3.0) : l / 9.03296;
+}
+// Symmetric rational gain: identity at 1, fixed endpoints and midpoint.
+// Its minimum slope is 1 / contrast, so even at 3 shadow differences survive.
+float contrastLightness(float value) {
+  float lower = min(value, 1.0 - value);
+  float shaped = lower / (contrast - 2.0 * (contrast - 1.0) * lower);
+  return value <= 0.5 ? shaped : 1.0 - shaped;
 }
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
   float depth = readDepth(uv);
@@ -38,7 +46,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     }
     value = sum / weights;
   }
-  value = clamp(value + bandBias, 0.0, 1.0);
+  value = clamp(contrastLightness(clamp(value, 0.0, 1.0)) + bandBias, 0.0, 1.0);
   if (stepped) {
     int band = 0;
     for (int i = 0; i < 7; i++) { if (i < steps - 1 && value >= thresholds[i]) band++; }
@@ -61,7 +69,8 @@ export class ValueStudyEffect extends Effect {
     super("ValueStudy", fragment, { blendFunction: BlendFunction.SRC, attributes: EffectAttribute.DEPTH | EffectAttribute.CONVOLUTION,
       uniforms: new Map<string, Uniform>([
         ["shadowValue", new Uniform(0.08)], ["highlightValue", new Uniform(0.94)],
-        ["bandBias", new Uniform(0)], ["smoothingRadius", new Uniform(1)],
+        ["bandBias", new Uniform(0)], ["smoothingRadius", new Uniform(0.5)],
+        ["contrast", new Uniform(2.2)],
         ["grayscale", new Uniform(true)],
         ["steps", new Uniform(5)], ["stepped", new Uniform(false)],
         ["thresholds", new Uniform([0.2, 0.4, 0.6, 0.8, 1, 1, 1])],
@@ -72,6 +81,7 @@ export class ValueStudyEffect extends Effect {
     this.uniforms.get("shadowValue")!.value = ramp.shadowLightness / 100;
     this.uniforms.get("highlightValue")!.value = ramp.highlightLightness / 100;
     this.uniforms.get("bandBias")!.value = ramp.bandBias;
+    this.uniforms.get("contrast")!.value = ramp.contrast;
     this.uniforms.get("smoothingRadius")!.value = ramp.smoothingRadius;
     this.uniforms.get("grayscale")!.value = ramp.grayscale;
     this.uniforms.get("steps")!.value = count;

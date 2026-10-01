@@ -105,6 +105,7 @@ describe("AppShell accessibility", () => {
     expect(screen.getAllByRole("slider", { name: /Shadow Value/ })).toHaveLength(2);
     expect(screen.getAllByRole("slider", { name: /Highlight Value/ })).toHaveLength(2);
     expect(screen.getAllByRole("slider", { name: /Band Bias/ })).toHaveLength(2);
+    expect(screen.getAllByRole("slider", { name: "Contrast" })).toHaveLength(2);
   });
 
   it("exposes broad zenithal controls and disables unused direction inputs", () => {

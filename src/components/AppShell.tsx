@@ -231,6 +231,8 @@ function ValueRampControl({
       />
       <label className="control-hint"><input type="checkbox" checked={valueRamp.grayscale} onChange={e => onChange({ grayscale: e.target.checked })} /> Neutral Grayscale</label>
       <RangeControl label="Exposure" min={0.1} max={4} step={0.05} value={valueRamp.exposure} onChange={exposure => onChange({ exposure })} />
+      <RangeControl label="Contrast" min={1} max={3} step={0.05} value={valueRamp.contrast} onChange={contrast => onChange({ contrast })} />
+      <p className="control-hint">Contrast separates light and shadow while retaining dark gradations. 1.00 is neutral.</p>
       <RangeControl label="Smoothing Radius" min={0} max={4} step={0.25} value={valueRamp.smoothingRadius} onChange={smoothingRadius => onChange({ smoothingRadius })} formatValue={v => `${v.toFixed(2)} px`} />
       <RangeControl
         label="Band Bias"

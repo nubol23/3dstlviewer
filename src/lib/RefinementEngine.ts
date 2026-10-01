@@ -8,7 +8,7 @@ import { OrthographicCamera, type WebGLRenderer } from "three";
 // protected API rather than modifying the library shader.
 class DenoisePass extends ShaderPass {
   constructor() {
-    super(new DenoiseMaterial({ sigma: 2, kSigma: 1, threshold: 0.1 }), "map");
+    super(new DenoiseMaterial({ sigma: 1.5, kSigma: 1, threshold: 0.12 }), "map");
     this.camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   }
 }

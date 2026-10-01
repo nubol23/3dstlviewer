@@ -4,10 +4,10 @@ import { z } from "zod";
 import type { ValueRampState, ValueStepCount } from "../types";
 import { assertValueStepCount } from "./valueMode";
 
-// AgX places ordinary matte studies in the midtones. Keep the extreme values
-// available while giving the default bands useful separation through that range.
+// Thresholds apply to contrast-shaped lightness. Five values reserve two bands
+// below the midpoint for deep recesses and reflected-light shadow planes.
 export function defaultThresholds(count: ValueStepCount): number[] {
-  return Array.from({ length: count - 1 }, (_, i) => 0.15 + (i + 1) * 0.7 / count);
+  return Array.from({ length: count - 1 }, (_, i) => (i + 1) / count);
 }
 
 export const DEFAULT_VALUE_RAMP: ValueRampState = {
@@ -15,7 +15,8 @@ export const DEFAULT_VALUE_RAMP: ValueRampState = {
   highlightLightness: 94,
   bandBias: 0,
   exposure: 1,
-  smoothingRadius: 1,
+  contrast: 2.2,
+  smoothingRadius: 0.5,
   grayscale: true,
   thresholds: defaultThresholds(5),
 };
@@ -56,6 +57,7 @@ const VALUE_RAMP_INPUT_SCHEMA = z
       highlightLightness: finiteNumberSchema("value ramp highlight lightness"),
       bandBias: finiteNumberSchema("value ramp band bias"),
       exposure: numberRangeSchema("exposure", 0.1, 4),
+      contrast: numberRangeSchema("study contrast", 1, 3),
       smoothingRadius: numberRangeSchema("smoothing radius", 0, 4),
       grayscale: z.boolean(),
       thresholds: z.array(z.number().min(0.01).max(0.99)).min(2).max(7).refine(values => values.every((v, i) => i === 0 || v > values[i - 1]), "Band thresholds must be increasing"),
@@ -76,7 +78,7 @@ const VALUE_RAMP_STATE_SCHEMA: z.ZodType<ValueRampState> = VALUE_RAMP_INPUT_SCHE
     shadowLightness: numberRangeSchema("value ramp shadow lightness", 5, 40),
     highlightLightness: numberRangeSchema("value ramp highlight lightness", 60, 98),
     bandBias: numberRangeSchema("value ramp band bias", -0.25, 0.25),
-    exposure: z.number(), smoothingRadius: z.number(), thresholds: z.array(z.number()), grayscale: z.boolean(),
+    exposure: z.number(), contrast: z.number(), smoothingRadius: z.number(), thresholds: z.array(z.number()), grayscale: z.boolean(),
   }),
 );
 

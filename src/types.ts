@@ -79,6 +79,7 @@ export type ValueRampState = {
   highlightLightness: number;
   bandBias: number;
   exposure: number;
+  contrast: number;
   smoothingRadius: number;
   thresholds: number[];
   grayscale: boolean;
@@ -96,7 +97,7 @@ export type LightPreset = {
 };
 
 export type PersistedViewerState = {
-  version: 6;
+  version: 7;
   light: LightState;
   renderStyle: ValueRenderStyle;
   valueStepCount: ValueStepCount;

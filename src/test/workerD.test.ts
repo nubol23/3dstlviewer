@@ -308,7 +308,7 @@ describe("persistence codec", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        version: 6,
+        version: 7,
         light: createInitialState().light,
         renderStyle: "not-a-style",
         valueStepCount: 5,
@@ -342,6 +342,15 @@ describe("persistence codec", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
+  it("discards the previous preset schema when contrast is introduced", () => {
+    const previous = toPersistedState(createInitialState());
+    const previousRamp = Object.fromEntries(Object.entries(previous.valueRamp).filter(([key]) => key !== "contrast"));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...previous, version: 6, valueRamp: previousRamp }));
+    expect(readPersistedState()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(createInitialState().valueRamp.contrast).toBe(2.2);
+  });
+
   it("cleanly resets legacy state instead of adding compatibility shims", () => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -363,7 +372,7 @@ describe("persistence codec", () => {
   it("saves and restores the complete value and lighting study in presets", () => {
     let state = appReducer(createInitialState(), {
       type: "set-value-ramp",
-      patch: { shadowLightness: 24, highlightLightness: 92, bandBias: 0.12 },
+      patch: { shadowLightness: 24, highlightLightness: 92, bandBias: 0.12, contrast: 2.6 },
     });
     state = appReducer(state, { type: "set-render-style", renderStyle: "stepped" });
     state = appReducer(state, { type: "set-value-step-count", valueStepCount: 8 });
@@ -393,7 +402,7 @@ describe("persistence codec", () => {
 
     expect(setup).toBeDefined();
     expect(state.light.elevationDeg).toBe(90);
-    expect(state.light.environmentIntensity).toBe(0.12);
+    expect(state.light.environmentIntensity).toBe(0.18);
     expect(state.lightingMode).toBe("zenithal");
   });
 });
