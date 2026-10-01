@@ -24,7 +24,7 @@ const browserGlobals = {
 
 export default [
   {
-    ignores: ["dist", "coverage", "node_modules", "playwright-report", "test-results"],
+    ignores: ["dist", "coverage", "node_modules", "playwright-report", "test-results", "tmp", ".playwright-cli"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

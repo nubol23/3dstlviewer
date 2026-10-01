@@ -482,3 +482,22 @@ describe("geometry helpers", () => {
     expect(rotatedSpanZ).not.toBeCloseTo(defaultSpanZ);
   });
 });
+
+
+describe("STL surface shading", () => {
+  it("smooths a shallow sculpt seam while preserving a sharp crease and positions", () => {
+    const triangles: StlTriangle[] = [
+      { normal: [0, 0, 1], vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] },
+      { normal: [0, 0, 1], vertices: [[1, 0, 0], [0, 0, 0], [0, -1, 0.3]] },
+      { normal: [1, 0, 0], vertices: [[0, 0, 0], [0, 1, 0], [0, 0, 1]] },
+    ];
+    const arrayBuffer = createAsciiStlFromTriangles(triangles);
+    const result = parseStlArrayBuffer({ arrayBuffer, fileName: "creases.stl", fileSize: arrayBuffer.byteLength });
+    const normals = result.sourceGeometry.getAttribute("normal");
+    expect(normals.getY(0)).toBeGreaterThan(0);
+    expect(normals.getY(0)).toBeCloseTo(normals.getY(4));
+    expect(normals.getX(6)).toBeCloseTo(1);
+    expect(normals.getZ(6)).toBeCloseTo(0);
+    expect(Array.from(result.sourceGeometry.getAttribute("position").array)).toEqual(Array.from(new Float32Array(triangles.flatMap(t => t.vertices.flat()))));
+  });
+});

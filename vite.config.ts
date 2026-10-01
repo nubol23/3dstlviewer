@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   test: {
     exclude: [
+      "tmp/**",
       "coverage/**",
       "dist/**",
       "node_modules/**",
