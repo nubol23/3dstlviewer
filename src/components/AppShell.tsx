@@ -427,6 +427,20 @@ export function AppShell({
     dispatch({ type: "apply-light-setup", setupId });
   };
 
+  const applyCoolFill = () => {
+    handleLightChange({ secondaryColor: "#a8c7ef", environmentColor: "#b6c9e3" });
+    setFloor({ color: "#78899f" });
+    setValueRamp({ grayscale: false });
+  };
+
+  const fillColorControls = (state.lightingMode === "dual" || state.lightingMode === "reflected") && <>
+    <div className="button-row">
+      <button type="button" disabled={lightLocked} onClick={applyCoolFill}>Cool Blue Fill</button>
+      <button type="button" onClick={() => setValueRamp({ grayscale: true })}>Monochrome</button>
+    </div>
+    <p className="control-hint">Muted blue secondary light and blue-gray sky/ground fill. Individual colors remain adjustable.</p>
+  </>;
+
   const loadPreset = (presetId: string) => {
     dispatch({ type: "load-preset", presetId });
   };
@@ -622,6 +636,7 @@ export function AppShell({
               onApply={applyLightSetup}
               testId="desktop-light-setup"
             />
+            {fillColorControls}
             <SunDomeControl
               light={state.light}
               onChange={handleLightChange}
@@ -662,6 +677,7 @@ export function AppShell({
                 name="mobile-lighting-mode"
                 testId="mobile-lighting-mode-control"
               />
+              {fillColorControls}
               <SunDomeControl
                 light={state.light}
                 onChange={handleLightChange}

@@ -184,6 +184,50 @@ Six production files are needed to connect the single serialized control,
 calibrate presets and the existing filter, and update the persistence schema;
 there is no additional rendering framework, dependency, or migration path.
 
+## Overcast interpretation and optional cool fill
+
+The broad-zenithal follow-up compared its current defaults, Contrast 3, and
+Spread 1 in raster/refinement on the full bust. The softer value separation is
+consistent with illumination from a large sky. Raising contrast to 3 gives a
+more graphic study, but does not correct environment visibility. Refinement
+adds cavity and overhang shading that the raster environment/AO approximation
+cannot fully reproduce. The preset and shared contrast default remain unchanged.
+
+The [CIE overcast definition](https://cie.co.at/eilvterm/17-29-111) describes a
+sky distribution. [CIBSE's daylight simulation reference, slide 38](https://www.cibse.org/media/rp5huvmb/fundamentals-of-light-and-daylight-simulation-software.pdf)
+explains that it has no direct sun and the zenith is three times as bright as
+the horizon. Our default gradient has a 2.92:1 zenith/horizon radiance ratio,
+using the installed package's exponent-2 gradient and default ground color.
+That endpoint ratio is similar; it does not make the complete distribution or
+light transport a calibrated CIE simulation. Broad's default Spread 0.35 still
+retains 65% of the overhead direct-source intensity. Spread 1 removes that
+source for an environment-only study, with approximate ground fill in raster.
+A single uniform matte model also lacks the painted value patterns in the
+photographic references.
+
+The primary dome remains adjustable in directional, local, dual and reflected
+modes. The second direct source retains its own azimuth/elevation sliders.
+Zenithal modes are deliberately fixed overhead. A lighting setup establishes
+starting values; it does not lock later direction edits.
+
+Dual and reflected modes now expose Cool Blue Fill and Monochrome actions in
+both desktop and mobile lighting controls. The palette sets the second light to
+#A8C7EF, environment to #B6C9E3 and floor to #78899F, and turns grayscale off.
+These subdued blues separate the fill visually from a neutral or warm key.
+The key color, directions, intensities, ground reflectance and exposure stay as
+chosen. Monochrome changes only the comparison view, preserving the colors.
+Manual colors and existing preset persistence remain available. No new stored
+field, version reset, renderer or dependency is needed.
+
+The full bust was inspected in both colored and monochrome output, continuous
+and stepped, in raster and refinement for both setups: 16 current stills.
+Value/color comparisons retained the completed refinement. The existing color
+browser test now covers the shortcut, key/direction preservation, dome keyboard
+input, monochrome comparison, reload and mobile reflected-mode controls. All
+73 unit tests and 9 hardware-GPU browser tests passed again, along with lint and
+the Pages build. Both independent scope reviews passed; only AppShell changes
+in production for this follow-up.
+
 ## Remaining approximations and limits
 
 - Raster environment and ground fill are approximate; screen-space AO cannot see

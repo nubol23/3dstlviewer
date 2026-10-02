@@ -162,3 +162,17 @@ Verify continuous and stepped images on both reference sculpts. Check stronger
 light/shadow separation and retained shadow variation, persistence of the new
 control, and display-only adjustment of completed refinement. Bump persistence
 to version 7 and discard earlier presets without migration.
+
+## Broad-sky interpretation and color shortcut follow-up
+
+Keep broad zenithal softer for scattered-sky studies; use the existing Contrast
+control for a more graphic interpretation. Document that the default blends
+an overhead source with the gradient and is not a calibrated CIE overcast sky.
+Do not introduce a hidden per-preset curve. The primary dome remains adjustable
+outside zenithal modes, and the second directional source keeps separate angles.
+
+Add Cool Blue Fill and Monochrome actions to double-directional and reflected
+lighting controls, on desktop and mobile. Reuse the existing color fields and
+grayscale switch; preserve the selected key color, angles, intensities and
+exposure. Choose a muted blue secondary light with blue-gray environment/ground
+fill. Keep individual color editing and persistence, with no schema change.

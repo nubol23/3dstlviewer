@@ -409,10 +409,37 @@ test("compares colored lighting with neutral values and persists the colors", as
   const grayscale = await page.locator("canvas").screenshot();
   await page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first().uncheck();
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(grayscale)).toBe(false);
+
+  // Applying a fill palette preserves the chosen key and the dome direction.
+  const dome = page.getByRole("button", { name: "Light direction pad", exact: true }).first();
+  await dome.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("slider", { name: "Azimuth", exact: true }).first()).toHaveValue("320");
+  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).first().click();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
+  await expect(page.getByRole("slider", { name: "Azimuth", exact: true }).first()).toHaveValue("320");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await expect(page.getByLabel("Environment Color", { exact: true }).first()).toHaveValue("#b6c9e3");
+  await expect(page.getByLabel("Floor Color", { exact: true }).first()).toHaveValue("#78899f");
+  const coolFill = await page.locator("canvas").screenshot();
+  await page.getByRole("button", { name: "Monochrome", exact: true }).first().click();
+  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).toBeChecked();
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(coolFill)).toBe(false);
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).first().click();
   await page.reload();
   await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
-  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#507add");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
   await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "Light", exact: true }).click();
+  await page.getByTestId("mobile-light-setup").selectOption("reflected");
+  await page.locator(".mobile-sheet").getByRole("button", { name: "Monochrome", exact: true }).click();
+  await page.locator(".mobile-sheet").getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
+  await expect(page.locator(".mobile-sheet").getByLabel("Environment Color", { exact: true })).toHaveValue("#b6c9e3");
+  await page.getByRole("tab", { name: "View", exact: true }).click();
+  await expect(page.locator(".mobile-sheet").getByRole("checkbox", { name: "Neutral Grayscale", exact: true })).not.toBeChecked();
 });
 
 test("increases value separation without flattening the illuminated shadows", async ({ page }) => {
