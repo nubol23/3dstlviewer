@@ -25,25 +25,34 @@ export default function App() {
   } = state;
   const cameraApiRef = useRef<ViewerCameraApi | null>(null);
   const loadRequestIdRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => loadAbortRef.current?.abort(), []);
   const previousSourceGeometryRef = useRef<BufferGeometry | null>(null);
 
   const handleFileSelected = useCallback(async (file: File) => {
+    loadAbortRef.current?.abort();
+    const controller = new globalThis.AbortController();
+    loadAbortRef.current = controller;
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
     dispatch({ type: "load-start", requestId });
     toast.loading(`Loading ${file.name}...`, {
       id: STL_LOAD_TOAST_ID,
       duration: Infinity,
+      action: { label: "Cancel", onClick: () => controller.abort() },
     });
     try {
-      const model = await loadStlFile(file);
+      const model = await loadStlFile(file, { signal: controller.signal, onProgress: phase => {
+        if (loadRequestIdRef.current === requestId) toast.loading(`${phase}…`, { id: STL_LOAD_TOAST_ID, duration: Infinity, action: { label: "Cancel", onClick: () => controller.abort() } });
+      } });
       if (loadRequestIdRef.current !== requestId) {
+        model.geometry.dispose(); model.sourceGeometry.dispose();
         return;
       }
       dispatch({ type: "load-success", requestId, model });
       toast.success(`Loaded ${model.metadata.fileName}.`, {
         id: STL_LOAD_TOAST_ID,
-        duration: LOAD_SUCCESS_VISIBLE_MS,
+        duration: LOAD_SUCCESS_VISIBLE_MS, action: undefined,
       });
       requestAnimationFrame(() => {
         if (loadRequestIdRef.current === requestId) {
@@ -58,7 +67,7 @@ export default function App() {
       dispatch({ type: "load-error", requestId, message });
       toast.error(state.model ? `${message}. Previous model remains loaded.` : message, {
         id: STL_LOAD_TOAST_ID,
-        duration: LOAD_ERROR_VISIBLE_MS,
+        duration: LOAD_ERROR_VISIBLE_MS, action: undefined,
       });
     }
   }, [state.model]);

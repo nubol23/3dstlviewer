@@ -1,5 +1,5 @@
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
-import { BufferGeometry } from "three";
+import { BufferAttribute, BufferGeometry } from "three";
 import {
   type LoadedModel,
   type ModelFitState,
@@ -52,18 +52,7 @@ function buildLoadedModel(input: {
   };
 }
 
-function buildLoadedModelFromParsed(input: StlLoadResult & { id?: string }): LoadedModel {
-  return {
-    id: input.id ?? createUuid(),
-    sourceGeometry: input.sourceGeometry,
-    geometry: input.geometry,
-    orientation: normalizeOrientation(input.orientation),
-    metadata: input.metadata,
-    fit: input.fit,
-  };
-}
-
-export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
+export function parseStlSource(input: StlLoadInput, onProgress?: (phase: string) => void) {
   const { arrayBuffer, fileName, fileSize } = input;
 
   if (!arrayBuffer || arrayBuffer.byteLength === 0) {
@@ -86,6 +75,7 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
 
   let parsedGeometry: BufferGeometry;
   try {
+    onProgress?.("Reading triangles");
     parsedGeometry = new STLLoader().parse(arrayBuffer);
   } catch (error) {
     throw new Error(
@@ -95,17 +85,13 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
 
   parsedGeometry = sanitizeStlGeometry(parsedGeometry);
   assertValidGeometry(parsedGeometry);
+  onProgress?.(`Preparing normals · ${getTriangleCountFromGeometry(parsedGeometry).toLocaleString()} triangles`);
   recomputeNormals(parsedGeometry);
 
-  const orientation = cloneOrientation(DEFAULT_MODEL_ORIENTATION);
-  const { geometry, fit } = normalizeGeometryForDisplay(parsedGeometry, orientation);
   const triangleCount = getTriangleCountFromGeometry(parsedGeometry);
 
   return {
     sourceGeometry: parsedGeometry,
-    geometry,
-    fit,
-    orientation,
     metadata: {
       fileName,
       fileSize,
@@ -115,31 +101,42 @@ export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
   };
 }
 
-export async function parseStlFile(file: File): Promise<StlLoadResult> {
-  if (!file) {
-    throw new Error("Cannot parse STL: file is required");
-  }
-
-  if (typeof File === "undefined" || !(file instanceof File)) {
-    throw new Error("Cannot parse STL: expected a File object");
-  }
-
-  if (file.size <= 0) {
-    throw new Error(`Cannot parse STL: file "${file.name}" is empty`);
-  }
-
-  const arrayBuffer = await file.arrayBuffer();
-  return parseStlArrayBuffer({
-    arrayBuffer,
-    fileName: file.name,
-    fileSize: file.size,
-  });
+export function parseStlArrayBuffer(input: StlLoadInput): StlLoadResult {
+  const source = parseStlSource(input);
+  const orientation = cloneOrientation(DEFAULT_MODEL_ORIENTATION);
+  const { geometry, fit } = normalizeGeometryForDisplay(source.sourceGeometry, orientation);
+  return { ...source, geometry, fit, orientation };
 }
 
-export async function loadStlFile(file: File): Promise<LoadedModel> {
-  const modelData = await parseStlFile(file);
-
-  return buildLoadedModelFromParsed(modelData);
+export async function loadStlFile(file: File, options: { signal?: AbortSignal; onProgress?: (phase: string) => void } = {}): Promise<LoadedModel> {
+  const started = performance.now();
+  const arrayBuffer = await file.arrayBuffer();
+  options.signal?.throwIfAborted();
+  const worker = new Worker(new URL("../workers/stl.worker.ts", import.meta.url), { type: "module" });
+  return new Promise((resolve, reject) => {
+    const stop = () => { worker.terminate(); options.signal?.removeEventListener("abort", abort); };
+    const abort = () => { stop(); reject(new Error("STL loading cancelled")); };
+    options.signal?.addEventListener("abort", abort, { once: true });
+    worker.onerror = event => { stop(); reject(new Error(event.message || "STL preparation failed")); };
+    worker.onmessage = event => {
+      const data = event.data;
+      if (data.phase) { options.onProgress?.(data.phase); return; }
+      stop();
+      if (data.error) { reject(new Error(data.error)); return; }
+      try {
+        const geometry = new BufferGeometry();
+        for (const attribute of data.attributes as Array<{ name: string; array: Float32Array; itemSize: number; normalized: boolean }>) {
+          geometry.setAttribute(attribute.name, new BufferAttribute(attribute.array, attribute.itemSize, attribute.normalized));
+        }
+        geometry.groups = data.groups;
+        const model = buildLoadedModel({ sourceGeometry: geometry, metadata: data.metadata });
+        performance.measure("stl:normal-preparation", { start: 0, duration: data.normalMs });
+        performance.measure("stl:load", { start: started, end: performance.now() });
+        resolve(model);
+      } catch (error) { reject(error); }
+    };
+    worker.postMessage({ arrayBuffer, fileName: file.name, fileSize: file.size }, [arrayBuffer]);
+  });
 }
 
 function normalizeTurn(turns: number): 0 | 1 | 2 | 3 {

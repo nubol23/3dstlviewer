@@ -5,6 +5,7 @@ import {
   Vector3,
   type TypedArray,
 } from "three";
+import { toCreasedNormals } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   DEFAULT_MODEL_ORIENTATION,
   type ModelFitState,
@@ -464,8 +465,22 @@ export function assertValidGeometry(geometry: BufferGeometry): void {
 }
 
 export function recomputeNormals(geometry: BufferGeometry): void {
-  geometry.deleteAttribute("normal");
-  geometry.computeVertexNormals();
+  // STL is non-indexed. Scale only a temporary position buffer so the library's
+  // fixed 0.01 position hash represents 1e-5 of model extent, regardless of units.
+  const started = performance.now();
+  const positions = getPositionAttribute(geometry);
+  const bounds = new Box3().setFromBufferAttribute(positions);
+  const extent = bounds.getSize(new Vector3());
+  const center = bounds.getCenter(new Vector3());
+  const scale = 1000 / Math.max(extent.x, extent.y, extent.z);
+  const shadingGeometry = new BufferGeometry();
+  shadingGeometry.setAttribute("position", positions.clone());
+  shadingGeometry.translate(-center.x, -center.y, -center.z);
+  shadingGeometry.scale(scale, scale, scale);
+  toCreasedNormals(shadingGeometry, Math.PI / 3);
+  geometry.setAttribute("normal", shadingGeometry.getAttribute("normal"));
+  shadingGeometry.dispose();
+  performance.measure("stl:normal-preparation", { start: started, end: performance.now() });
 
   const normal = geometry.getAttribute("normal");
   if (!(normal instanceof BufferAttribute)) {

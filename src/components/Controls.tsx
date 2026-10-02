@@ -28,13 +28,13 @@ export function RangeControl({
   formatValue,
   testId,
 }: RangeControlProps) {
-  if (max <= min) {
-    throw new Error(`Invalid range control "${label}": max must be greater than min`);
+  if (max < min) {
+    throw new Error(`Invalid range control "${label}": max must not be less than min`);
   }
 
   const inputId = useId();
   const display = formatValue ? formatValue(value) : `${value.toFixed(suffix === "m" ? 1 : 2)}${suffix ?? ""}`;
-  const fillPercent = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+  const fillPercent = max === min ? 0 : Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
   const inputStyle = { "--range-fill": `${fillPercent}%` } as CSSProperties;
   const handleSliderChange = (nextValue: number[]) => {
     const [next] = nextValue;
@@ -58,7 +58,7 @@ export function RangeControl({
         step={step}
         value={[value]}
         style={inputStyle}
-        disabled={disabled}
+        disabled={disabled || max === min}
         onValueChange={handleSliderChange}
       >
         <Slider.Track className="slider-block__track">
@@ -67,6 +67,7 @@ export function RangeControl({
         <span aria-hidden="true" className="slider-block__thumb" />
         <input
           id={inputId}
+          aria-label={label}
           className="slider-block__native-input"
           type="range"
           data-testid={testId}
@@ -76,7 +77,7 @@ export function RangeControl({
           value={value}
           style={inputStyle}
           onChange={(event) => onChange(Number(event.target.value))}
-          disabled={disabled}
+          disabled={disabled || max === min}
         />
       </Slider.Root>
       <span className="slider-block__ticks">

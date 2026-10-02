@@ -1,13 +1,24 @@
 import chroma from "chroma-js";
 import { z } from "zod";
 
-import type { ValueRampState } from "../types";
+import type { ValueRampState, ValueStepCount } from "../types";
 import { assertValueStepCount } from "./valueMode";
 
+// Thresholds apply to contrast-shaped lightness. Five values reserve two bands
+// below the midpoint for deep recesses and reflected-light shadow planes.
+export function defaultThresholds(count: ValueStepCount): number[] {
+  return Array.from({ length: count - 1 }, (_, i) => (i + 1) / count);
+}
+
 export const DEFAULT_VALUE_RAMP: ValueRampState = {
-  shadowLightness: 18,
-  highlightLightness: 88,
+  shadowLightness: 8,
+  highlightLightness: 94,
   bandBias: 0,
+  exposure: 1,
+  contrast: 2.2,
+  smoothingRadius: 0.5,
+  grayscale: true,
+  thresholds: defaultThresholds(5),
 };
 
 export const VALUE_RAMP_MIN_CONTRAST = 20;
@@ -45,6 +56,11 @@ const VALUE_RAMP_INPUT_SCHEMA = z
       shadowLightness: finiteNumberSchema("value ramp shadow lightness"),
       highlightLightness: finiteNumberSchema("value ramp highlight lightness"),
       bandBias: finiteNumberSchema("value ramp band bias"),
+      exposure: numberRangeSchema("exposure", 0.1, 4),
+      contrast: numberRangeSchema("study contrast", 1, 3),
+      smoothingRadius: numberRangeSchema("smoothing radius", 0, 4),
+      grayscale: z.boolean(),
+      thresholds: z.array(z.number().min(0.01).max(0.99)).min(2).max(7).refine(values => values.every((v, i) => i === 0 || v > values[i - 1]), "Band thresholds must be increasing"),
     },
     { error: "Invalid value ramp state: expected object" },
   )
@@ -62,6 +78,7 @@ const VALUE_RAMP_STATE_SCHEMA: z.ZodType<ValueRampState> = VALUE_RAMP_INPUT_SCHE
     shadowLightness: numberRangeSchema("value ramp shadow lightness", 5, 40),
     highlightLightness: numberRangeSchema("value ramp highlight lightness", 60, 98),
     bandBias: numberRangeSchema("value ramp band bias", -0.25, 0.25),
+    exposure: z.number(), contrast: z.number(), smoothingRadius: z.number(), thresholds: z.array(z.number()), grayscale: z.boolean(),
   }),
 );
 

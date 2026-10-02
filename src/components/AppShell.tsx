@@ -26,12 +26,8 @@ const RENDER_STYLE_OPTIONS = [
   { value: "stepped", label: "Stepped" },
 ] as const;
 
-const LIGHTING_MODE_OPTIONS = [
-  { value: "directional", label: "Bust / Directional" },
-  { value: "classic-top", label: "Classic Top" },
-] as const;
-
 const VALUE_STEP_COUNTS: readonly ValueStepCount[] = [3, 4, 5, 6, 7, 8];
+const WARM_KEY_COLOR = "#ffe2b3";
 
 type AppShellProps = {
   state: AppState;
@@ -234,6 +230,11 @@ function ValueRampControl({
         testId={`${testIdPrefix}-highlight-value-slider`}
         formatValue={(value) => value.toFixed(0)}
       />
+      <label className="control-hint"><input type="checkbox" checked={valueRamp.grayscale} onChange={e => onChange({ grayscale: e.target.checked })} /> Neutral Grayscale</label>
+      <RangeControl label="Exposure" min={0.1} max={4} step={0.05} value={valueRamp.exposure} onChange={exposure => onChange({ exposure })} />
+      <RangeControl label="Contrast" min={1} max={3} step={0.05} value={valueRamp.contrast} onChange={contrast => onChange({ contrast })} />
+      <p className="control-hint">Contrast separates light and shadow while retaining dark gradations. 1.00 is neutral.</p>
+      <RangeControl label="Smoothing Radius" min={0} max={4} step={0.25} value={valueRamp.smoothingRadius} onChange={smoothingRadius => onChange({ smoothingRadius })} formatValue={v => `${v.toFixed(2)} px`} />
       <RangeControl
         label="Band Bias"
         min={-0.25}
@@ -244,6 +245,13 @@ function ValueRampControl({
         testId={`${testIdPrefix}-band-bias-slider`}
         formatValue={(value) => (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2))}
       />
+      {renderStyle === "stepped" && <details><summary>Band thresholds</summary>
+        {valueRamp.thresholds.map((threshold, index) => <RangeControl
+          key={index} label={`Boundary ${index + 1}`} min={index ? Math.round((valueRamp.thresholds[index - 1] + 0.01) * 100) / 100 : 0.01}
+          max={index < valueRamp.thresholds.length - 1 ? Math.round((valueRamp.thresholds[index + 1] - 0.01) * 100) / 100 : 0.99}
+          step={0.01} value={threshold} onChange={value => onChange({ thresholds: valueRamp.thresholds.map((v, i) => i === index ? value : v) })}
+        />)}
+      </details>}
     </div>
   );
 }
@@ -304,15 +312,12 @@ function LightingModeControl({
   testId: string;
 }) {
   return (
-    <SegmentedControl
-      options={LIGHTING_MODE_OPTIONS}
-      value={lightingMode}
-      onChange={onChange}
-      ariaLabel="Lighting model"
-      disabled={disabled}
-      name={name}
-      testId={testId}
-    />
+    <label className="light-setup-control" data-testid={testId}>
+      <span>Lighting model</span>
+      <select aria-label="Lighting model" name={name} value={lightingMode} disabled={disabled} onChange={e => onChange(e.target.value as LightingMode)}>
+        {LIGHT_SETUPS.map(setup => <option key={setup.id} value={setup.lightingMode}>{setup.name}</option>)}
+      </select>
+    </label>
   );
 }
 
@@ -422,6 +427,27 @@ export function AppShell({
   const applyLightSetup = (setupId: string) => {
     dispatch({ type: "apply-light-setup", setupId });
   };
+
+  const applyCoolFill = () => {
+    handleLightChange({ secondaryColor: "#a8c7ef", environmentColor: "#b6c9e3" });
+    setFloor({ color: "#78899f" });
+    setValueRamp({ grayscale: false });
+  };
+
+  const fillColorControls = (state.lightingMode === "dual" || state.lightingMode === "reflected") && <>
+    <div className="button-row">
+      <button type="button" disabled={lightLocked} onClick={applyCoolFill}>Cool Blue Fill</button>
+      <button type="button" onClick={() => setValueRamp({ grayscale: true })}>Monochrome</button>
+    </div>
+    <p className="control-hint">Muted blue secondary light and blue-gray sky/ground fill. Individual colors remain adjustable.</p>
+  </>;
+
+  const warmKeyControl = <label className="control-hint">
+    <input type="checkbox" checked={state.light.keyColor.toLowerCase() === WARM_KEY_COLOR} disabled={lightLocked} onChange={event => {
+      handleLightChange({ keyColor: event.target.checked ? WARM_KEY_COLOR : "#ffffff" });
+      if (event.target.checked) setValueRamp({ grayscale: false });
+    }} /> Warm Key Light
+  </label>;
 
   const loadPreset = (presetId: string) => {
     dispatch({ type: "load-preset", presetId });
@@ -557,20 +583,11 @@ export function AppShell({
             <div className="panel-section__header">
               <h3>Floor</h3>
             </div>
+            <RangeControl label="Ground Reflectance" min={0} max={1} step={0.01} value={state.floor.reflectance} onChange={reflectance => setFloor({ reflectance })} />
             <label className="floor-color">
               <span>Floor Color</span>
               <input type="color" value={state.floor.color} onChange={(event) => setFloor({ color: event.target.value })} />
             </label>
-            <RangeControl
-              label="Material Roughness"
-              min={0.05}
-              max={1}
-              step={0.01}
-              value={state.floor.roughness}
-              onChange={(value) => setFloor({ roughness: value })}
-              testId="floor-roughness-slider"
-              formatValue={(value) => value.toFixed(2)}
-            />
           </section>
 
           <section className="panel-section">
@@ -627,11 +644,13 @@ export function AppShell({
               onApply={applyLightSetup}
               testId="desktop-light-setup"
             />
+            {fillColorControls}
+            {warmKeyControl}
             <SunDomeControl
               light={state.light}
               onChange={handleLightChange}
               disabled={lightLocked}
-              classicTop={state.lightingMode === "classic-top"}
+              lightingMode={state.lightingMode}
             />
           </section>
         </aside>
@@ -667,12 +686,14 @@ export function AppShell({
                 name="mobile-lighting-mode"
                 testId="mobile-lighting-mode-control"
               />
+              {fillColorControls}
               <SunDomeControl
                 light={state.light}
                 onChange={handleLightChange}
                 disabled={lightLocked}
-                classicTop={state.lightingMode === "classic-top"}
+                lightingMode={state.lightingMode}
               />
+              {warmKeyControl}
               <LightSetupControl
                 disabled={lightLocked}
                 onApply={applyLightSetup}
@@ -762,7 +783,8 @@ export function AppShell({
                 <div className="panel-section__header">
                   <h3>Floor</h3>
                 </div>
-                <label className="floor-color">
+                <RangeControl label="Ground Reflectance" min={0} max={1} step={0.01} value={state.floor.reflectance} onChange={reflectance => setFloor({ reflectance })} />
+            <label className="floor-color">
                   <span>Floor Color</span>
                   <input
                     type="color"
@@ -770,16 +792,6 @@ export function AppShell({
                     onChange={(event) => setFloor({ color: event.target.value })}
                   />
                 </label>
-                <RangeControl
-                  label="Material Roughness"
-                  min={0.05}
-                  max={1}
-                  step={0.01}
-                  value={state.floor.roughness}
-                  onChange={(value) => setFloor({ roughness: value })}
-                  testId="mobile-floor-roughness-slider"
-                  formatValue={(value) => value.toFixed(2)}
-                />
               </section>
             </div>
           </Tabs.Content>

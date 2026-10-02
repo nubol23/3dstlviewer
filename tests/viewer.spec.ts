@@ -1,9 +1,13 @@
 import { fileURLToPath } from "node:url";
+import { PNG } from "pngjs";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
 const test = base.extend<{ assertNoConsoleErrors: void }>({
   assertNoConsoleErrors: [
     async ({ page }, use) => {
+      // Chrome requests an optional favicon; keep that unrelated browser request
+      // out of the renderer's console-error acceptance gate.
+      await page.route("**/favicon.ico", route => route.fulfill({ status: 204, body: "" }));
       const consoleErrors: string[] = [];
       page.on("console", (message) => {
         if (message.type() === "error") {
@@ -53,6 +57,7 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
           }
         : null,
       windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
     };
   });
 
@@ -64,6 +69,7 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
   expect(layout.viewport!.top).toBeGreaterThanOrEqual(0);
   expect(layout.viewport!.right).toBeLessThanOrEqual(layout.windowWidth + 1);
   expect(layout.viewport!.bottom).toBeGreaterThan(layout.viewport!.top);
+  expect(layout.viewport!.bottom).toBeLessThanOrEqual(layout.windowHeight + 1);
 }
 
 async function selectRenderStyle(
@@ -111,11 +117,11 @@ test.describe("STL viewer", () => {
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
 
     const desktopLightingMode = page.getByTestId("desktop-lighting-mode-control");
-    await desktopLightingMode.getByRole("radio", { name: "Classic Top" }).click();
-    await expect(desktopLightingMode.getByRole("radio", { name: "Classic Top" })).toBeChecked();
+    await desktopLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("broad-zenithal");
+    await expect(desktopLightingMode.getByRole("combobox", { name: "Lighting model" })).toHaveValue("broad-zenithal");
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeDisabled();
     await expect(page.getByTestId("light-elevation-slider").first()).toBeDisabled();
-    await desktopLightingMode.getByRole("radio", { name: "Bust / Directional" }).click();
+    await desktopLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("directional");
     await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
 
     await selectValueCount(desktopValueStudy, 5);
@@ -227,8 +233,8 @@ test.describe("STL viewer", () => {
 
     await page.getByRole("tab", { name: "Light" }).click();
     const mobileLightingMode = page.getByTestId("mobile-lighting-mode-control");
-    await mobileLightingMode.getByRole("radio", { name: "Classic Top" }).click();
-    await expect(mobileLightingMode.getByRole("radio", { name: "Classic Top" })).toBeChecked();
+    await mobileLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("broad-zenithal");
+    await expect(mobileLightingMode.getByRole("combobox", { name: "Lighting model" })).toHaveValue("broad-zenithal");
     await expect(page.locator(".mobile-sheet").getByTestId("light-azimuth-slider")).toBeDisabled();
     await expect(page.locator(".mobile-sheet").getByTestId("light-elevation-slider")).toBeDisabled();
     const lightLayout = await page.evaluate(() => {
@@ -282,8 +288,8 @@ test.describe("STL viewer", () => {
     await page.getByRole("tab", { name: "Light" }).click();
     await page
       .getByTestId("mobile-lighting-mode-control")
-      .getByRole("radio", { name: "Classic Top" })
-      .click();
+      .getByRole("combobox", { name: "Lighting model" })
+      .selectOption("broad-zenithal");
 
     const layout = await page.evaluate(() => {
       const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
@@ -312,4 +318,254 @@ test.describe("STL viewer", () => {
     await expect(page.getByText("1. X -90°")).toBeVisible();
     await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
   });
+});
+
+test("updates independent lights and screen-space values through the study controls", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await page.getByTestId("desktop-light-setup").selectOption("dual");
+  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true }).first();
+  await ratio.fill("0");
+  const keyOnly = await page.locator("canvas").screenshot();
+  await ratio.fill("1.5");
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(keyOnly)).toBe(false);
+  await page.getByTestId("desktop-light-setup").selectOption("local");
+  const distance = page.getByRole("slider", { name: "Source Distance", exact: true }).first();
+  await distance.fill("1");
+  const near = await page.locator("canvas").screenshot();
+  await distance.fill("5");
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(near)).toBe(false);
+  await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
+  await selectValueCount(page.getByTestId("value-study-control"), 3);
+  await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first().fill("3");
+  await page.getByRole("slider", { name: "Contrast", exact: true }).first().fill("2.6");
+  await page.getByTestId("desktop-value-ramp-control").getByText("Band thresholds").click();
+  await selectValueCount(page.getByTestId("value-study-control"), 5);
+  await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.2");
+  await page.getByRole("slider", { name: "Boundary 2", exact: true }).first().fill("0.21");
+  await page.getByRole("slider", { name: "Boundary 3", exact: true }).first().fill("0.22");
+  await expect(page.getByRole("slider", { name: "Boundary 2", exact: true }).first()).toBeDisabled();
+  await page.getByRole("slider", { name: "Boundary 3", exact: true }).first().fill("0.6");
+  await selectValueCount(page.getByTestId("value-study-control"), 3);
+  await expect(page.getByRole("slider", { name: "Boundary 1", exact: true }).first()).toBeVisible();
+  await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.25");
+  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await page.reload();
+  await expect(page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first()).toHaveValue("3");
+  await expect(page.getByRole("slider", { name: "Contrast", exact: true }).first()).toHaveValue("2.6");
+  await expect(page.getByRole("combobox", { name: "Lighting model", exact: true }).first()).toHaveValue("local");
+});
+
+test("refines on desktop, keeps value edits, resets on light edits, and excludes mobile", async ({ page }) => {
+  test.setTimeout(60000);
+  await page.goto("/");
+  await expect(page.locator("canvas")).toBeVisible();
+  const softwareRenderer = await page.locator("canvas").evaluate(canvas => {
+    const gl = canvas.getContext("webgl2")!;
+    const debug = gl.getExtension("WEBGL_debug_renderer_info");
+    return debug ? /SwiftShader|llvmpipe|software/i.test(String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))) : false;
+  });
+  test.skip(softwareRenderer, "Refinement requires a hardware renderer; run with PLAYWRIGHT_GPU=1 on a GPU host");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  const previewPixels = PNG.sync.read(await page.locator("canvas").screenshot());
+  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  const status = page.locator(".refinement-controls [role=status]");
+  await expect(status).toContainText("Refined", { timeout: 45000 });
+  const refinedPixels = PNG.sync.read(await page.locator("canvas").screenshot());
+  // Prove the displayed buffer is traced, not just a completed sample counter:
+  // native traced occlusion darkens the ground, which receives no raster shadow.
+  let shadowPixels = 0;
+  for (let y = Math.floor(previewPixels.height * 0.65); y < previewPixels.height; y++) {
+    for (let x = 0; x < previewPixels.width; x++) {
+      const offset = (y * previewPixels.width + x) * 4;
+      if (previewPixels.data[offset] - refinedPixels.data[offset] > 12) shadowPixels++;
+    }
+  }
+  expect(shadowPixels).toBeGreaterThan(previewPixels.width * previewPixels.height * 0.003);
+  await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
+  await page.getByRole("slider", { name: "Contrast", exact: true }).first().fill("2.5");
+  await expect(status).toContainText("Refined");
+  await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("4");
+  await expect(status).toHaveText("Preview");
+  await page.getByTestId("desktop-light-setup").selectOption("dual");
+  await page.getByRole("slider", { name: "Azimuth", exact: true }).first().fill("350");
+  await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true }).first()).toHaveValue("170");
+  await page.getByRole("slider", { name: "Second Elevation", exact: true }).first().fill("25");
+  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  await expect(status).toContainText("Refined", { timeout: 45000 });
+  await page.getByRole("slider", { name: "Azimuth", exact: true }).first().fill("0");
+  await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true }).first()).toHaveValue("180");
+  await expect(status).toHaveText("Preview");
+  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  await page.getByRole("button", { name: "Stop Refinement", exact: true }).click();
+  await expect(status).toHaveText("Preview");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Refine Lighting", exact: true })).toHaveCount(0);
+});
+
+test("links an opposing fill, unlinks without a jump, and restores settings and presets", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  await page.getByTestId("desktop-light-setup").selectOption("dual");
+  const opposite = page.getByRole("checkbox", { name: "Keep Second Light Opposite", exact: true }).first();
+  const azimuth = page.getByRole("slider", { name: "Azimuth", exact: true }).first();
+  const secondAzimuth = page.getByRole("slider", { name: "Second Azimuth", exact: true }).first();
+  const secondElevation = page.getByRole("slider", { name: "Second Elevation", exact: true }).first();
+  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true }).first();
+  await expect(opposite).toBeChecked();
+  await expect(secondAzimuth).toBeDisabled();
+  await expect(secondAzimuth).toHaveValue("135");
+  await expect(ratio).toHaveValue("0.3");
+  await expect(ratio).toHaveAttribute("min", "0");
+  await expect(ratio).toHaveAttribute("max", "2");
+  await ratio.fill("1.2");
+  await secondElevation.fill("25");
+  await azimuth.fill("175");
+  await page.getByRole("button", { name: "Light direction pad", exact: true }).first().focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(secondAzimuth).toHaveValue("0");
+  await page.getByRole("slider", { name: "Elevation", exact: true }).first().fill("60");
+  await expect(secondElevation).toHaveValue("25");
+  await expect(ratio).toHaveValue("1.2");
+  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  const linkedImage = await page.locator("canvas").screenshot();
+  await opposite.uncheck();
+  await expect(secondAzimuth).toBeEnabled();
+  await expect(secondAzimuth).toHaveValue("0");
+  expect(await page.locator("canvas").screenshot()).toEqual(linkedImage);
+  await azimuth.fill("90");
+  await expect(secondAzimuth).toHaveValue("0");
+  await secondAzimuth.fill("40");
+  await ratio.fill("0.8");
+  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await page.reload();
+  await expect(opposite).not.toBeChecked();
+  await expect(secondAzimuth).toHaveValue("40");
+  await expect(ratio).toHaveValue("0.8");
+  await page.getByRole("button", { name: "Preset 1 smooth", exact: true }).first().click();
+  await expect(opposite).toBeChecked();
+  await expect(secondAzimuth).toHaveValue("0");
+  await page.getByRole("button", { name: "Preset 2 smooth", exact: true }).first().click();
+  await expect(opposite).not.toBeChecked();
+  await expect(secondAzimuth).toHaveValue("40");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "Light", exact: true }).click();
+  const mobile = page.locator(".mobile-sheet");
+  const mobileOpposite = mobile.getByRole("checkbox", { name: "Keep Second Light Opposite", exact: true });
+  await mobileOpposite.check();
+  await expect(mobile.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("270");
+  await mobile.getByRole("slider", { name: "Second Elevation", exact: true }).fill("35");
+  await mobile.getByRole("slider", { name: "Azimuth", exact: true }).fill("350");
+  await expect(mobile.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("170");
+  await expect(mobile.getByRole("slider", { name: "Second Elevation", exact: true })).toHaveValue("35");
+  await mobileOpposite.uncheck();
+  await expect(mobile.getByRole("slider", { name: "Second Azimuth", exact: true })).toBeEnabled();
+  await expect(mobile.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("170");
+});
+
+test("compares colored lighting with neutral values and persists the colors", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await page.getByTestId("desktop-light-setup").selectOption("dual");
+  const warmKey = page.getByRole("checkbox", { name: "Warm Key Light", exact: true }).first();
+  await expect(warmKey).not.toBeChecked();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ffffff");
+  await page.getByLabel("Key Color", { exact: true }).first().fill("#ee7040");
+  await page.getByLabel("Second Light Color", { exact: true }).first().fill("#507add");
+  await page.getByLabel("Environment Color", { exact: true }).first().fill("#d0dfef");
+  const grayscale = await page.locator("canvas").screenshot();
+  await page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first().uncheck();
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(grayscale)).toBe(false);
+
+  // Applying a fill palette preserves the chosen key and the dome direction.
+  const dome = page.getByRole("button", { name: "Light direction pad", exact: true }).first();
+  await dome.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("slider", { name: "Azimuth", exact: true }).first()).toHaveValue("320");
+  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).first().click();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
+  await expect(page.getByRole("slider", { name: "Azimuth", exact: true }).first()).toHaveValue("320");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await expect(page.getByLabel("Environment Color", { exact: true }).first()).toHaveValue("#b6c9e3");
+  await expect(page.getByLabel("Floor Color", { exact: true }).first()).toHaveValue("#78899f");
+  const coolFill = await page.locator("canvas").screenshot();
+  await page.getByRole("button", { name: "Monochrome", exact: true }).first().click();
+  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).toBeChecked();
+  await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(coolFill)).toBe(false);
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).first().click();
+  await page.reload();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+
+  await page.getByRole("button", { name: "Monochrome", exact: true }).first().click();
+  await warmKey.check();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ffe2b3");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await expect(page.getByLabel("Environment Color", { exact: true }).first()).toHaveValue("#b6c9e3");
+  await expect(page.getByLabel("Floor Color", { exact: true }).first()).toHaveValue("#78899f");
+  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+  await page.reload();
+  await expect(warmKey).toBeChecked();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "Light", exact: true }).click();
+  await page.locator(".mobile-sheet").getByRole("checkbox", { name: "Warm Key Light", exact: true }).uncheck();
+  await expect(page.locator(".mobile-sheet").getByLabel("Key Color", { exact: true })).toHaveValue("#ffffff");
+  await expect(page.locator(".mobile-sheet").getByLabel("Second Light Color", { exact: true })).toHaveValue("#a8c7ef");
+  await page.getByTestId("mobile-light-setup").selectOption("reflected");
+  await page.locator(".mobile-sheet").getByRole("button", { name: "Monochrome", exact: true }).click();
+  await page.locator(".mobile-sheet").getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
+  await expect(page.locator(".mobile-sheet").getByLabel("Environment Color", { exact: true })).toHaveValue("#b6c9e3");
+  await page.locator(".mobile-sheet").getByRole("checkbox", { name: "Warm Key Light", exact: true }).check();
+  await expect(page.locator(".mobile-sheet").getByLabel("Key Color", { exact: true })).toHaveValue("#ffe2b3");
+  await page.getByRole("tab", { name: "View", exact: true }).click();
+  await expect(page.locator(".mobile-sheet").getByRole("checkbox", { name: "Neutral Grayscale", exact: true })).not.toBeChecked();
+});
+
+test("increases value separation without flattening the illuminated shadows", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  // A close, low studio source produces a continuous illumination gradient on
+  // the existing small STL, so the test can inspect its darker value variations.
+  await page.getByTestId("desktop-light-setup").selectOption("local");
+  await page.getByRole("slider", { name: "Source Distance", exact: true }).first().fill("1");
+  await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("1");
+  await page.getByRole("slider", { name: "Elevation", exact: true }).first().fill("20");
+  const control = page.getByRole("slider", { name: "Contrast", exact: true }).first();
+  await expect(control).toHaveValue("2.2");
+  await control.fill("1");
+  const neutral = PNG.sync.read(await page.locator("canvas").screenshot({ path: test.info().outputPath("contrast-neutral.png") }));
+  await control.fill("2.2");
+  const painted = PNG.sync.read(await page.locator("canvas").screenshot({ path: test.info().outputPath("contrast-painted.png") }));
+  const shadowBefore: number[] = [], shadowAfter: number[] = [];
+  const lightBefore: number[] = [], lightAfter: number[] = [];
+  for (let y = Math.floor(neutral.height * 0.15); y < neutral.height * 0.85; y += 4) {
+    for (let x = Math.floor(neutral.width * 0.15); x < neutral.width * 0.85; x += 4) {
+      const offset = (y * neutral.width + x) * 4;
+      const r = neutral.data[offset], g = neutral.data[offset + 1], b = neutral.data[offset + 2];
+      // Ignore the tinted background and UI; compare identical rendered locations.
+      if (Math.abs(r - g) > 1 || Math.abs(g - b) > 1) continue;
+      if (r >= 60 && r <= 120) { shadowBefore.push(r); shadowAfter.push(painted.data[offset]); }
+      if (r >= 145 && r <= 205) { lightBefore.push(r); lightAfter.push(painted.data[offset]); }
+    }
+  }
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  expect(shadowAfter.length).toBeGreaterThan(50);
+  expect(lightAfter.length).toBeGreaterThan(50);
+  expect(mean(lightAfter) - mean(shadowAfter)).toBeGreaterThan(mean(lightBefore) - mean(shadowBefore) + 15);
+  // Shadow planes retain a useful range rather than collapsing to the dark endpoint.
+  shadowAfter.sort((a, b) => a - b);
+  expect(shadowAfter[Math.floor(shadowAfter.length * 0.95)] - shadowAfter[Math.floor(shadowAfter.length * 0.05)]).toBeGreaterThan(10);
+  expect(shadowAfter[Math.floor(shadowAfter.length * 0.01)]).toBeGreaterThan(25);
 });

@@ -209,11 +209,65 @@ describe("light reducer lock semantics", () => {
     const lockedState = appReducer(state, { type: "toggle-lock" });
     const updatedLocked = appReducer(lockedState, {
       type: "set-lighting-mode",
-      lightingMode: "classic-top",
+      lightingMode: "broad-zenithal",
     });
 
     expect(updatedLocked).toBe(lockedState);
     expect(updatedLocked.lightingMode).toBe("directional");
+  });
+});
+
+describe("opposing directional fill", () => {
+  it("links azimuth by default while keeping elevation, ratio and softness independent", () => {
+    let state = appReducer(createInitialState(), { type: "apply-light-setup", setupId: "dual" });
+    expect(state.light.secondaryOpposite).toBe(true);
+    expect(state.light.secondaryAzimuthDeg).toBe(135);
+    expect(state.light.secondaryIntensity).toBe(0.3);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 350, elevationDeg: 70, secondaryElevationDeg: 25, secondaryIntensity: 1.2 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(170);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 180 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(0);
+    expect(state.light.secondaryElevationDeg).toBe(25);
+    expect(state.light.secondaryIntensity).toBe(1.2);
+    expect(state.light.shadowSoftness).toBe(0.35);
+  });
+
+  it("unlinks without a jump and relinks only the azimuth", () => {
+    let state = appReducer(createInitialState(), { type: "apply-light-setup", setupId: "dual" });
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 270 } });
+    state = appReducer(state, { type: "set-light", patch: { secondaryOpposite: false } });
+    expect(state.light.secondaryAzimuthDeg).toBe(90);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 30 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(90);
+    state = appReducer(state, { type: "set-light", patch: { secondaryAzimuthDeg: 80, secondaryElevationDeg: 40 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(80);
+    state = appReducer(state, { type: "set-light", patch: { secondaryOpposite: true } });
+    expect(state.light.secondaryAzimuthDeg).toBe(210);
+    expect(state.light.secondaryElevationDeg).toBe(40);
+  });
+
+  it("restores linked and independent settings and saved presets", () => {
+    let state = appReducer(createInitialState(), { type: "apply-light-setup", setupId: "dual" });
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 350, secondaryElevationDeg: 25, secondaryIntensity: 1.2 } });
+    state = appReducer(state, { type: "save-preset" });
+    const linkedId = state.presets[0].id;
+    state = appReducer(state, { type: "set-light", patch: { secondaryOpposite: false, secondaryAzimuthDeg: 215 } });
+    state = appReducer(state, { type: "save-preset" });
+    const independentId = state.presets[0].id;
+    writePersistedState(state);
+    state = createInitialState();
+    expect(state.light.secondaryOpposite).toBe(false);
+    expect(state.light.secondaryAzimuthDeg).toBe(215);
+    state = appReducer(state, { type: "load-preset", presetId: linkedId });
+    expect(state.light.secondaryOpposite).toBe(true);
+    expect(state.light.secondaryAzimuthDeg).toBe(170);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 0 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(180);
+    state = appReducer(state, { type: "load-preset", presetId: independentId });
+    expect(state.light.secondaryOpposite).toBe(false);
+    expect(state.light.secondaryAzimuthDeg).toBe(215);
+    expect(state.light.secondaryElevationDeg).toBe(25);
+    expect(state.light.secondaryIntensity).toBe(1.2);
   });
 });
 
@@ -285,7 +339,7 @@ describe("reducer fail-fast validation", () => {
     expect(() => appReducer(state, { type: "set-active-tab", activeTab: "missing" as never })).toThrow("Unsupported active tab");
     expect(() => appReducer(state, { type: "set-light", patch: { intensity: Number.NaN } })).toThrow("Invalid light intensity");
     expect(() => appReducer(state, { type: "set-value-ramp", patch: { bandBias: Infinity } })).toThrow("Invalid value ramp band bias");
-    expect(() => appReducer(state, { type: "set-floor", patch: { roughness: Infinity } })).toThrow("Invalid floor roughness");
+    expect(() => appReducer(state, { type: "set-floor", patch: { reflectance: Infinity } })).toThrow("Invalid ground reflectance");
   });
 });
 
@@ -308,13 +362,13 @@ describe("persistence codec", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        version: 4,
+        version: 8,
         light: createInitialState().light,
         renderStyle: "not-a-style",
         valueStepCount: 5,
         valueRamp: DEFAULT_VALUE_RAMP,
         lightingMode: DEFAULT_LIGHTING_MODE,
-        floor: { color: "#000", roughness: 1 },
+        floor: { color: "#000", reflectance: 1 },
         presets: [],
       }),
     );
@@ -333,13 +387,22 @@ describe("persistence codec", () => {
         valueStepCount: DEFAULT_VALUE_STEP_COUNT,
         valueRamp: DEFAULT_VALUE_RAMP,
         lightingMode: DEFAULT_LIGHTING_MODE,
-        floor: { color: "#000", roughness: 1 },
+        floor: { color: "#000", reflectance: 1 },
         presets: [],
       }),
     );
 
     expect(readPersistedState()).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("discards the previous preset schema when opposing fill is introduced", () => {
+    const previous = toPersistedState(createInitialState());
+    const previousLight = Object.fromEntries(Object.entries(previous.light).filter(([key]) => key !== "secondaryOpposite"));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...previous, version: 7, light: previousLight }));
+    expect(readPersistedState()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(createInitialState().light.secondaryOpposite).toBe(false);
   });
 
   it("cleanly resets legacy state instead of adding compatibility shims", () => {
@@ -351,7 +414,7 @@ describe("persistence codec", () => {
         valueMode: "five-step",
         valueRamp: DEFAULT_VALUE_RAMP,
         zenithalStudy: false,
-        floor: { color: "#000", roughness: 1 },
+        floor: { color: "#000", reflectance: 1 },
         presets: [],
       }),
     );
@@ -363,11 +426,11 @@ describe("persistence codec", () => {
   it("saves and restores the complete value and lighting study in presets", () => {
     let state = appReducer(createInitialState(), {
       type: "set-value-ramp",
-      patch: { shadowLightness: 24, highlightLightness: 92, bandBias: 0.12 },
+      patch: { shadowLightness: 24, highlightLightness: 92, bandBias: 0.12, contrast: 2.6 },
     });
     state = appReducer(state, { type: "set-render-style", renderStyle: "stepped" });
     state = appReducer(state, { type: "set-value-step-count", valueStepCount: 8 });
-    state = appReducer(state, { type: "set-lighting-mode", lightingMode: "classic-top" });
+    state = appReducer(state, { type: "set-lighting-mode", lightingMode: "broad-zenithal" });
     const withPreset = appReducer(state, { type: "save-preset" });
     const changed = appReducer(withPreset, {
       type: "set-render-style",
@@ -378,26 +441,22 @@ describe("persistence codec", () => {
       presetId: withPreset.presets[0]?.id ?? "missing",
     });
 
-    expect(restored.valueRamp).toEqual({
-      shadowLightness: 24,
-      highlightLightness: 92,
-      bandBias: 0.12,
-    });
+    expect(restored.valueRamp).toEqual(state.valueRamp);
     expect(restored.renderStyle).toBe("stepped");
     expect(restored.valueStepCount).toBe(8);
-    expect(restored.lightingMode).toBe("classic-top");
+    expect(restored.lightingMode).toBe("broad-zenithal");
   });
 
   it("applies artist lighting setups with their intended direction and fill", () => {
-    const setup = LIGHT_SETUPS.find((candidate) => candidate.id === "dramatic-side");
+    const setup = LIGHT_SETUPS.find((candidate) => candidate.id === "zenithal");
     const state = appReducer(createInitialState(), {
       type: "apply-light-setup",
-      setupId: "dramatic-side",
+      setupId: "zenithal",
     });
 
     expect(setup).toBeDefined();
-    expect(state.light.elevationDeg).toBe(35);
-    expect(state.light.bounceStrength).toBe(0.08);
-    expect(state.lightingMode).toBe("directional");
+    expect(state.light.elevationDeg).toBe(90);
+    expect(state.light.environmentIntensity).toBe(0.18);
+    expect(state.lightingMode).toBe("zenithal");
   });
 });

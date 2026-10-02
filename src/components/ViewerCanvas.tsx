@@ -6,7 +6,8 @@ import type CameraControlsType from "camera-controls";
 import { Box3, Color, PCFShadowMap, Vector3 } from "three";
 import { Floor } from "./Floor";
 import { SceneLighting } from "./SceneLighting";
-import { StlModel, type BandProcessingStatus } from "./StlModel";
+import { StudyPipeline, type RefinementApi, type RefinementStatus } from "./StudyPipeline";
+import { StlModel } from "./StlModel";
 import type { AppState } from "../types";
 
 export type ViewerCameraApi = {
@@ -24,7 +25,15 @@ const DEFAULT_POSITION = new Vector3(4.2, 2.8, 5.2);
 
 export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(function ViewerCanvas({ state }, ref) {
   const controlsRef = useRef<CameraControlsType | null>(null);
-  const [bandStatus, setBandStatus] = useState<BandProcessingStatus>("idle");
+  const refinementRef = useRef<RefinementApi | null>(null);
+  const [refinement, setRefinement] = useState<RefinementStatus>({ available: false, phase: "preview", samples: 0, progress: 0 });
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 1024px), (pointer: coarse)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1024px), (pointer: coarse)");
+    const update = () => setMobile(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -55,28 +64,20 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
 
   return (
     <div className="viewer-shell" data-testid="viewer-shell">
-      {bandStatus === "updating" && (
-        <div className="band-status" role="status" aria-live="polite">
-          Updating value bands…
-        </div>
-      )}
-      {bandStatus === "fast" && (
-        <div className="band-status band-status--fast" role="status" aria-live="polite">
-          Fast GPU bands
-        </div>
-      )}
-      {bandStatus === "error" && (
-        <div className="band-status band-status--error" role="status" aria-live="polite">
-          Band cleanup unavailable · GPU preview active
-        </div>
-      )}
+      {refinement.available && <div className="refinement-controls">
+        <span role="status" aria-live="polite">{refinement.phase === "preparing" ? `Preparing scene · ${Math.round(refinement.progress * 100)}%` : refinement.phase === "compiling" ? "Compiling shaders…" : refinement.phase === "sampling" ? `Refining · ${Math.floor(refinement.samples)}/64 samples` : refinement.phase === "done" ? `Refined · ${Math.floor(refinement.samples)} samples · budget reached` : refinement.phase === "error" ? `Refinement failed: ${refinement.message}` : "Preview"}</span>
+        {["preview", "done", "error"].includes(refinement.phase) && <button type="button" disabled={!state.model} onClick={() => { controlsRef.current?.stop(); refinementRef.current?.refine(); }}>Refine Lighting</button>}
+        {!["preview", "error"].includes(refinement.phase) && <button type="button" onClick={() => refinementRef.current?.stop()}>{refinement.phase === "done" ? "Back to Preview" : "Stop Refinement"}</button>}
+      </div>}
       <Canvas
-        shadows="soft"
-        dpr={[1, 2]}
+        shadows
+        frameloop="demand"
+        dpr={mobile ? 1 : [1, 1.5]}
         camera={{ position: DEFAULT_POSITION.toArray(), fov: 38, near: 0.01, far: 100 }}
         gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         onCreated={({ gl, scene }) => {
           gl.shadowMap.enabled = true;
+          gl.shadowMap.autoUpdate = false;
           gl.shadowMap.type = PCFShadowMap;
           scene.background = new Color("#c9c9c6");
         }}
@@ -86,17 +87,12 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
           light={state.light}
           lightingMode={state.lightingMode}
           modelFit={state.model?.fit ?? null}
+          mobile={mobile}
+          floor={state.floor}
         />
         <Floor floor={state.floor} modelFit={state.model?.fit ?? null} />
-        <StlModel
-          model={state.model}
-          light={state.light}
-          renderStyle={state.renderStyle}
-          valueStepCount={state.valueStepCount}
-          valueRamp={state.valueRamp}
-          lightingMode={state.lightingMode}
-          onBandStatusChange={setBandStatus}
-        />
+        <StlModel model={state.model} />
+        <StudyPipeline ref={refinementRef} state={state} mobile={mobile} onStatus={setRefinement} />
         {!state.model && <EmptyStudyForm />}
       </Canvas>
     </div>
@@ -182,11 +178,11 @@ function EmptyStudyForm() {
     <group position={[0, 0.05, 0]} data-testid="empty-study-form">
       <mesh castShadow receiveShadow position={[0, 0.34, 0]}>
         <icosahedronGeometry args={[1.15, 2]} />
-        <meshStandardMaterial color={bevel} roughness={0.9} metalness={0} />
+        <meshPhysicalMaterial color={bevel} roughness={1} metalness={0} specularIntensity={0} />
       </mesh>
       <mesh receiveShadow position={[0, 0.04, 0]}>
         <cylinderGeometry args={[1.45, 1.55, 0.16, 80]} />
-        <meshStandardMaterial color="#8a8a85" roughness={0.9} metalness={0} />
+        <meshPhysicalMaterial color="#8a8a85" roughness={1} metalness={0} specularIntensity={0} />
       </mesh>
     </group>
   );

@@ -4,7 +4,7 @@ export type ValueRenderStyle = "smooth" | "stepped";
 
 export type ValueStepCount = 3 | 4 | 5 | 6 | 7 | 8;
 
-export type LightingMode = "directional" | "classic-top";
+export type LightingMode = "directional" | "zenithal" | "broad-zenithal" | "local" | "dual" | "reflected";
 
 export type ActiveTab = "light" | "model" | "view";
 
@@ -30,7 +30,17 @@ export type LightState = {
   elevationDeg: number;
   distance: number;
   intensity: number;
-  bounceStrength: number;
+  environmentIntensity: number;
+  spread: number;
+  secondaryIntensity: number;
+  secondaryOpposite: boolean;
+  secondaryAzimuthDeg: number;
+  secondaryElevationDeg: number;
+  sourceSize: number;
+  reflector: boolean;
+  keyColor: string;
+  secondaryColor: string;
+  environmentColor: string;
   shadowSoftness: number;
   locked: boolean;
 };
@@ -61,17 +71,23 @@ export type LoadedModel = {
 };
 
 export type FloorState = {
+  reflectance: number;
   color: string;
-  roughness: number;
 };
 
 export type ValueRampState = {
   shadowLightness: number;
   highlightLightness: number;
   bandBias: number;
+  exposure: number;
+  contrast: number;
+  smoothingRadius: number;
+  thresholds: number[];
+  grayscale: boolean;
 };
 
 export type LightPreset = {
+  floor: FloorState;
   id: string;
   name: string;
   light: LightState;
@@ -82,7 +98,7 @@ export type LightPreset = {
 };
 
 export type PersistedViewerState = {
-  version: 4;
+  version: 8;
   light: LightState;
   renderStyle: ValueRenderStyle;
   valueStepCount: ValueStepCount;
