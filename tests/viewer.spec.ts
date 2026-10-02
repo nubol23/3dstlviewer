@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
-import { test as base, expect, type Locator, type Page } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 
 const test = base.extend<{ assertNoConsoleErrors: void }>({
   assertNoConsoleErrors: [
@@ -72,30 +72,45 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
   expect(layout.viewport!.bottom).toBeLessThanOrEqual(layout.windowHeight + 1);
 }
 
-async function selectRenderStyle(
-  valueStudyControl: Locator,
-  label: "Smooth" | "Stepped",
-): Promise<void> {
-  await valueStudyControl.getByRole("radio", { name: label }).click();
-  await expect(valueStudyControl.getByRole("radio", { name: label })).toBeChecked();
+type TabName = "Light" | "Values" | "Scene" | "Presets";
+
+async function openTab(page: Page, name: TabName): Promise<void> {
+  const tab = page.getByRole("tab", { name, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
-async function selectValueCount(valueStudyControl: Locator, count: 3 | 4 | 5 | 6 | 7 | 8): Promise<void> {
-  const select = valueStudyControl.getByRole("combobox", { name: "Values" });
-  await select.selectOption(String(count));
-  await expect(select).toHaveValue(String(count));
+async function selectStudy(page: Page, study: "smooth" | 3 | 4 | 5 | 6 | 7 | 8): Promise<void> {
+  const option = page
+    .getByRole("radiogroup", { name: "Value study" })
+    .getByRole("radio", { name: study === "smooth" ? "Smooth" : `${study} values`, exact: true });
+  await option.click();
+  await expect(option).toBeChecked();
+}
+
+async function selectSetup(page: Page, name: string): Promise<void> {
+  const setup = page.getByRole("radiogroup", { name: "Lighting setup" }).getByRole("radio", { name, exact: true });
+  await setup.click();
+  await expect(setup).toBeChecked();
+}
+
+async function expectLoaded(page: Page, fileName: string): Promise<void> {
+  await expect(page.locator(".app-bar__file-name")).toHaveText(fileName);
 }
 
 test.describe("STL viewer", () => {
   test("loads and manipulates a z-up STL with the default import orientation", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByText("Miniature Light Studio")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Open an STL to study its values" })).toBeVisible();
     await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-    await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+    await expectLoaded(page, "z-up-mini.stl");
     const loadedToast = page.getByText("Loaded z-up-mini.stl.");
     await expect(loadedToast).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Open an STL to study its values" })).toHaveCount(0);
+    await openTab(page, "Scene");
+    await expect(page.getByRole("heading", { name: "z-up-mini.stl" })).toBeVisible();
     await expect(page.getByText("1. X -90°")).toBeVisible();
-    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
     await expect(loadedToast).toBeHidden({ timeout: 6000 });
 
     await expectCanvasToRender(page);
@@ -107,33 +122,38 @@ test.describe("STL viewer", () => {
 
     await page.getByTestId("reset-model-orientation-button").click();
     await expect(page.getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByText("2. Y +90°")).toHaveCount(0);
 
-    const desktopValueStudy = page.getByTestId("value-study-control");
-    await selectRenderStyle(desktopValueStudy, "Stepped");
-    await selectValueCount(desktopValueStudy, 3);
+    await selectStudy(page, 3);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
+    await openTab(page, "Values");
     await page.getByRole("slider", { name: "Shadow Value" }).fill("30");
     await expect(page.getByRole("slider", { name: "Shadow Value" })).toHaveValue("30");
 
-    const desktopLightingMode = page.getByTestId("desktop-lighting-mode-control");
-    await desktopLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("broad-zenithal");
-    await expect(desktopLightingMode.getByRole("combobox", { name: "Lighting model" })).toHaveValue("broad-zenithal");
-    await expect(page.getByTestId("light-azimuth-slider").first()).toBeDisabled();
-    await expect(page.getByTestId("light-elevation-slider").first()).toBeDisabled();
-    await desktopLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("directional");
-    await expect(page.getByTestId("light-azimuth-slider").first()).toBeEnabled();
+    await openTab(page, "Light");
+    await selectSetup(page, "Broad Zenithal");
+    await expect(page.getByTestId("light-azimuth-slider")).toBeDisabled();
+    await expect(page.getByTestId("light-elevation-slider")).toBeDisabled();
+    await selectSetup(page, "Directional");
+    await expect(page.getByTestId("light-azimuth-slider")).toBeEnabled();
 
-    await selectValueCount(desktopValueStudy, 5);
+    await selectStudy(page, 5);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
-    await selectRenderStyle(desktopValueStudy, "Smooth");
+    await selectStudy(page, "smooth");
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
 
-    const shadowSoftness = page.getByRole("slider", { name: "Shadow Softness" }).first();
+    const shadowSoftness = page.getByRole("slider", { name: "Shadow Softness" });
     await shadowSoftness.fill("1");
     await shadowSoftness.fill("0");
+
+    await page.getByRole("button", { name: "Hide controls" }).click();
+    await expect(page.locator("#inspector")).toBeHidden();
+    await expectDesktopWorkbenchLayout(page);
+    await page.getByRole("button", { name: "Show controls" }).click();
+    await expect(page.locator("#inspector")).toBeVisible();
 
     await page.getByTestId("stl-file-input").setInputFiles({
       name: "invalid.stl",
@@ -142,8 +162,7 @@ test.describe("STL viewer", () => {
     });
     const errorToast = page.getByText(/Invalid STL content for invalid\.stl/);
     await expect(errorToast).toBeVisible();
-    await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
-    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
+    await expectLoaded(page, "z-up-mini.stl");
     await expect(errorToast).toBeHidden({ timeout: 8000 });
   });
 
@@ -151,24 +170,23 @@ test.describe("STL viewer", () => {
     await page.goto("/");
     await page.getByTestId("stl-file-input").setInputFiles(valueBandIslandPath);
 
-    await expect(page.getByRole("heading", { name: "value-band-island.stl" }).first()).toBeVisible();
+    await expectLoaded(page, "value-band-island.stl");
     await expect(page.getByText("Loaded value-band-island.stl.")).toBeVisible();
     await expect(page.getByText("4 tris").first()).toBeVisible();
+    await openTab(page, "Scene");
     await expect(page.getByText("1. X -90°")).toBeVisible();
-    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
 
-    const desktopValueStudy = page.getByTestId("value-study-control");
-    await selectRenderStyle(desktopValueStudy, "Stepped");
     for (const count of [3, 4, 5, 6, 7, 8] as const) {
-      await selectValueCount(desktopValueStudy, count);
+      await selectStudy(page, count);
       await expect(page.getByText("1. X -90°")).toBeVisible();
       await expectCanvasToRender(page);
       await expectDesktopWorkbenchLayout(page);
-      await expect(page.getByTestId("desktop-value-ramp-preview").locator("span")).toHaveCount(count);
+      await expect(page.getByTestId("value-ramp-preview").locator("span")).toHaveCount(count);
     }
-    await selectRenderStyle(desktopValueStudy, "Smooth");
+    await selectStudy(page, "smooth");
+    await expect(page.getByTestId("value-ramp-preview").locator("span")).toHaveCount(0);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
   });
@@ -177,134 +195,106 @@ test.describe("STL viewer", () => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.goto("/");
     await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-    await page.getByRole("tab", { name: "Model" }).click();
-    await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
-    await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
-    await page.locator(".mobile-sheet").getByTestId("rotate-y-positive").click();
-    await expect(page.locator(".mobile-sheet").getByText("2. Y +90°")).toBeVisible();
-    await page.locator(".mobile-sheet").getByTestId("reset-model-orientation-button").click();
-    await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
-    await page.getByTestId("mobile-stl-file-input").setInputFiles(zUpMiniPath);
-    await expect(page.locator(".mobile-sheet").getByText("1. X -90°")).toBeVisible();
-    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
+    await expectLoaded(page, "z-up-mini.stl");
+    const inspector = page.locator(".inspector");
+    const sheetBody = page.locator("#inspector-body");
+    await expect(sheetBody).toBeHidden();
 
-    const boxes = await page.evaluate(() => {
-      const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
-      const sheet = document.querySelector(".mobile-sheet")?.getBoundingClientRect();
-      const modeOverlay = document.querySelector(".mobile-mode-segmented");
-      const sunCue = document.querySelector(".sun-cue");
-      return {
-        viewport: viewport ? { top: viewport.top, bottom: viewport.bottom, height: viewport.height } : null,
-        sheet: sheet ? { top: sheet.top, bottom: sheet.bottom, height: sheet.height } : null,
-        hasModeOverlay: Boolean(modeOverlay),
-        hasSunCue: Boolean(sunCue),
+    await page.getByRole("tab", { name: "Scene" }).click();
+    await expect(sheetBody).toBeVisible();
+    await expect(inspector.getByText("1. X -90°")).toBeVisible();
+    await inspector.getByTestId("rotate-y-positive").click();
+    await expect(inspector.getByText("2. Y +90°")).toBeVisible();
+    await inspector.getByTestId("reset-model-orientation-button").click();
+    await expect(inspector.getByText("1. X -90°")).toBeVisible();
+    await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+    await expect(inspector.getByText("1. X -90°")).toBeVisible();
+
+    const measure = () => page.evaluate(() => {
+      const rect = (selector: string) => {
+        const box = document.querySelector(selector)?.getBoundingClientRect();
+        return box ? { top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height } : null;
       };
-    });
-
-    expect(boxes.viewport).not.toBeNull();
-    expect(boxes.sheet).not.toBeNull();
-    expect(boxes.viewport!.height).toBeGreaterThan(100);
-    expect(boxes.sheet!.top).toBeGreaterThanOrEqual(boxes.viewport!.bottom - 1);
-    expect(boxes.sheet!.bottom).toBeLessThanOrEqual(568);
-    expect(boxes.hasModeOverlay).toBe(false);
-    expect(boxes.hasSunCue).toBe(false);
-
-    const maximizeButton = page.getByTestId("maximize-viewer-button");
-    await maximizeButton.click();
-    await expect(maximizeButton).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator(".mobile-sheet")).toBeHidden();
-    const maximizedBoxes = await page.evaluate(() => {
-      const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
-      const sheet = document.querySelector(".mobile-sheet")?.getBoundingClientRect();
       return {
-        viewport: viewport ? { top: viewport.top, bottom: viewport.bottom, height: viewport.height } : null,
-        sheet: sheet ? { height: sheet.height } : null,
+        viewport: rect(".viewport"),
+        inspector: rect(".inspector"),
+        studyBar: rect(".study-bar"),
         horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     });
-    expect(maximizedBoxes.viewport).not.toBeNull();
-    expect(maximizedBoxes.viewport!.height).toBeGreaterThan(boxes.viewport!.height + 100);
-    expect(maximizedBoxes.viewport!.bottom).toBeLessThanOrEqual(568);
-    expect(maximizedBoxes.sheet!.height).toBe(0);
-    expect(maximizedBoxes.horizontalOverflow).toBe(false);
+
+    const open = await measure();
+    expect(open.viewport!.height).toBeGreaterThan(160);
+    expect(open.inspector!.bottom).toBeLessThanOrEqual(568);
+    expect(open.studyBar!.bottom).toBeLessThanOrEqual(open.inspector!.top);
+    expect(open.studyBar!.top).toBeGreaterThanOrEqual(open.viewport!.top);
+    expect(open.horizontalOverflow).toBe(false);
+
+    await page.getByRole("tab", { name: "Scene" }).click();
+    await expect(sheetBody).toBeHidden();
+    const collapsed = await measure();
+    expect(collapsed.viewport!.height).toBeGreaterThan(open.viewport!.height + 150);
+    expect(collapsed.inspector!.bottom).toBeLessThanOrEqual(568);
+    expect(collapsed.horizontalOverflow).toBe(false);
+
+    await page.getByRole("button", { name: "Show controls" }).click();
+    await expect(sheetBody).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(maximizeButton).toHaveAttribute("aria-pressed", "false");
-    await expect(page.locator(".mobile-sheet")).toBeVisible();
+    await expect(sheetBody).toBeHidden();
 
     await page.getByRole("tab", { name: "Light" }).click();
-    const mobileLightingMode = page.getByTestId("mobile-lighting-mode-control");
-    await mobileLightingMode.getByRole("combobox", { name: "Lighting model" }).selectOption("broad-zenithal");
-    await expect(mobileLightingMode.getByRole("combobox", { name: "Lighting model" })).toHaveValue("broad-zenithal");
-    await expect(page.locator(".mobile-sheet").getByTestId("light-azimuth-slider")).toBeDisabled();
-    await expect(page.locator(".mobile-sheet").getByTestId("light-elevation-slider")).toBeDisabled();
+    await expect(sheetBody).toBeVisible();
+    await selectSetup(page, "Broad Zenithal");
+    await expect(inspector.getByTestId("light-azimuth-slider")).toBeDisabled();
+    await expect(inspector.getByTestId("light-elevation-slider")).toBeDisabled();
+    await inspector.getByTestId("sun-dome").scrollIntoViewIfNeeded();
     const lightLayout = await page.evaluate(() => {
-      const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
-      const primary = document.querySelector(".mobile-sheet .sun-dome-panel__primary")?.getBoundingClientRect();
-      const dome = document.querySelector(".mobile-sheet .sun-dome")?.getBoundingClientRect();
-      const azimuth = document.querySelector("[data-testid='light-azimuth-slider']")?.getBoundingClientRect();
-      const elevation = document.querySelector("[data-testid='light-elevation-slider']")?.getBoundingClientRect();
-      return {
-        sheetBody: sheetBody ? { top: sheetBody.top, bottom: sheetBody.bottom, width: sheetBody.width, height: sheetBody.height } : null,
-        primary: primary ? { top: primary.top, bottom: primary.bottom, left: primary.left, right: primary.right, width: primary.width, height: primary.height } : null,
-        dome: dome ? { width: dome.width, height: dome.height, bottom: dome.bottom } : null,
-        azimuth: azimuth ? { width: azimuth.width, height: azimuth.height } : null,
-        elevation: elevation ? { width: elevation.width, height: elevation.height } : null,
-      };
+      const body = document.querySelector("#inspector-body")!.getBoundingClientRect();
+      const pad = document.querySelector(".dome-control__pad")!.getBoundingClientRect();
+      const dome = document.querySelector(".dome")!.getBoundingClientRect();
+      return { body: { left: body.left, right: body.right }, pad: { left: pad.left, right: pad.right }, dome: { width: dome.width, height: dome.height } };
     });
+    expect(lightLayout.dome.width).toBeLessThanOrEqual(160);
+    expect(lightLayout.dome.height).toBeLessThanOrEqual(160);
+    expect(lightLayout.pad.left).toBeGreaterThanOrEqual(lightLayout.body.left);
+    expect(lightLayout.pad.right).toBeLessThanOrEqual(lightLayout.body.right);
 
-    expect(lightLayout.sheetBody).not.toBeNull();
-    expect(lightLayout.primary).not.toBeNull();
-    expect(lightLayout.dome).not.toBeNull();
-    expect(lightLayout.azimuth).not.toBeNull();
-    expect(lightLayout.elevation).not.toBeNull();
-    expect(lightLayout.dome!.width).toBeLessThanOrEqual(150);
-    expect(lightLayout.dome!.height).toBeLessThanOrEqual(150);
-    expect(lightLayout.primary!.width).toBeLessThanOrEqual(lightLayout.sheetBody!.width);
-    expect(lightLayout.primary!.height).toBeLessThanOrEqual(lightLayout.sheetBody!.height);
-    expect(lightLayout.primary!.top).toBeGreaterThanOrEqual(lightLayout.sheetBody!.top);
-    expect(lightLayout.primary!.bottom).toBeLessThanOrEqual(lightLayout.sheetBody!.bottom);
-
-    await page.getByRole("tab", { name: "View" }).click();
-    await expect(page.getByTestId("mobile-value-study-control")).toBeVisible();
-    const mobileValueStudy = page.getByTestId("mobile-value-study-control");
-    await selectRenderStyle(mobileValueStudy, "Stepped");
-    await selectValueCount(mobileValueStudy, 3);
+    await page.getByRole("tab", { name: "Values" }).click();
+    await selectStudy(page, 3);
     await expectCanvasToRender(page);
-    await expect(page.getByTestId("mobile-value-ramp-control")).toBeVisible();
-    await page.getByTestId("mobile-shadow-value-slider").fill("26");
-    await expect(page.getByTestId("mobile-shadow-value-slider")).toHaveValue("26");
-    await selectValueCount(mobileValueStudy, 8);
+    await page.getByTestId("shadow-value-slider").fill("26");
+    await expect(page.getByTestId("shadow-value-slider")).toHaveValue("26");
+    await selectStudy(page, 8);
     await expectCanvasToRender(page);
-    await selectRenderStyle(mobileValueStudy, "Smooth");
+    await selectStudy(page, "smooth");
     await expectCanvasToRender(page);
 
-    const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
-    expect(horizontalOverflow).toBe(false);
+    expect((await measure()).horizontalOverflow).toBe(false);
   });
 
   test("keeps compact mobile light layout at 390x844", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await page.getByRole("tab", { name: "Light" }).click();
-    await page
-      .getByTestId("mobile-lighting-mode-control")
-      .getByRole("combobox", { name: "Lighting model" })
-      .selectOption("broad-zenithal");
+    await selectSetup(page, "Broad Zenithal");
 
     const layout = await page.evaluate(() => {
-      const sheetBody = document.querySelector(".mobile-sheet__body")?.getBoundingClientRect();
-      const dome = document.querySelector(".mobile-sheet .sun-dome")?.getBoundingClientRect();
+      const sheetBody = document.querySelector("#inspector-body")?.getBoundingClientRect();
+      const dome = document.querySelector(".dome")?.getBoundingClientRect();
+      const viewport = document.querySelector(".viewport")?.getBoundingClientRect();
       return {
         sheetBody: sheetBody ? { height: sheetBody.height } : null,
         dome: dome ? { width: dome.width, height: dome.height } : null,
+        viewport: viewport ? { height: viewport.height } : null,
         horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     });
 
     expect(layout.sheetBody).not.toBeNull();
     expect(layout.dome).not.toBeNull();
-    expect(layout.dome!.width).toBeLessThanOrEqual(150);
+    expect(layout.dome!.width).toBeLessThanOrEqual(160);
     expect(layout.dome!.height).toBeLessThan(layout.sheetBody!.height);
+    expect(layout.viewport!.height).toBeGreaterThan(300);
     expect(layout.horizontalOverflow).toBe(false);
   });
 
@@ -312,49 +302,53 @@ test.describe("STL viewer", () => {
     await page.goto("/");
     await page.getByTestId("stl-file-input").setInputFiles(degenerateMiniPath);
 
-    await expect(page.getByRole("heading", { name: "degenerate-mini.stl" }).first()).toBeVisible();
+    await expectLoaded(page, "degenerate-mini.stl");
     await expect(page.getByText("Loaded degenerate-mini.stl.")).toBeVisible();
     await expect(page.getByText("2 tris").first()).toBeVisible();
+    await openTab(page, "Scene");
     await expect(page.getByText("1. X -90°")).toBeVisible();
-    await expect(page.getByTestId("global-load-feedback")).toHaveCount(0);
   });
 });
 
 test("updates independent lights and screen-space values through the study controls", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
-  await page.getByTestId("desktop-light-setup").selectOption("dual");
-  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true }).first();
+  await expectLoaded(page, "z-up-mini.stl");
+  await selectSetup(page, "Double Directional");
+  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true });
   await ratio.fill("0");
   const keyOnly = await page.locator("canvas").screenshot();
   await ratio.fill("1.5");
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(keyOnly)).toBe(false);
-  await page.getByTestId("desktop-light-setup").selectOption("local");
-  const distance = page.getByRole("slider", { name: "Source Distance", exact: true }).first();
+  await selectSetup(page, "Local Studio");
+  const distance = page.getByRole("slider", { name: "Source Distance", exact: true });
   await distance.fill("1");
   const near = await page.locator("canvas").screenshot();
   await distance.fill("5");
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(near)).toBe(false);
-  await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
-  await selectValueCount(page.getByTestId("value-study-control"), 3);
-  await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first().fill("3");
-  await page.getByRole("slider", { name: "Contrast", exact: true }).first().fill("2.6");
-  await page.getByTestId("desktop-value-ramp-control").getByText("Band thresholds").click();
-  await selectValueCount(page.getByTestId("value-study-control"), 5);
-  await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.2");
-  await page.getByRole("slider", { name: "Boundary 2", exact: true }).first().fill("0.21");
-  await page.getByRole("slider", { name: "Boundary 3", exact: true }).first().fill("0.22");
-  await expect(page.getByRole("slider", { name: "Boundary 2", exact: true }).first()).toBeDisabled();
-  await page.getByRole("slider", { name: "Boundary 3", exact: true }).first().fill("0.6");
-  await selectValueCount(page.getByTestId("value-study-control"), 3);
-  await expect(page.getByRole("slider", { name: "Boundary 1", exact: true }).first()).toBeVisible();
-  await page.getByRole("slider", { name: "Boundary 1", exact: true }).first().fill("0.25");
-  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await selectStudy(page, 3);
+  await openTab(page, "Values");
+  await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).fill("3");
+  await page.getByRole("slider", { name: "Contrast", exact: true }).fill("2.6");
+  await page.getByText("Band thresholds").click();
+  await selectStudy(page, 5);
+  await page.getByRole("slider", { name: "Boundary 1", exact: true }).fill("0.2");
+  await page.getByRole("slider", { name: "Boundary 2", exact: true }).fill("0.21");
+  await page.getByRole("slider", { name: "Boundary 3", exact: true }).fill("0.22");
+  await expect(page.getByRole("slider", { name: "Boundary 2", exact: true })).toBeDisabled();
+  await page.getByRole("slider", { name: "Boundary 3", exact: true }).fill("0.6");
+  await selectStudy(page, 3);
+  await expect(page.getByRole("slider", { name: "Boundary 1", exact: true })).toBeVisible();
+  await page.getByRole("slider", { name: "Boundary 1", exact: true }).fill("0.25");
+  await openTab(page, "Presets");
+  await page.getByRole("button", { name: "Save current look", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Preset 1 Local Studio · 3 values", exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("slider", { name: "Smoothing Radius", exact: true }).first()).toHaveValue("3");
-  await expect(page.getByRole("slider", { name: "Contrast", exact: true }).first()).toHaveValue("2.6");
-  await expect(page.getByRole("combobox", { name: "Lighting model", exact: true }).first()).toHaveValue("local");
+  await openTab(page, "Values");
+  await expect(page.getByRole("slider", { name: "Smoothing Radius", exact: true })).toHaveValue("3");
+  await expect(page.getByRole("slider", { name: "Contrast", exact: true })).toHaveValue("2.6");
+  await openTab(page, "Light");
+  await expect(page.getByRole("radio", { name: "Local Studio", exact: true })).toBeChecked();
 });
 
 test("refines on desktop, keeps value edits, resets on light edits, and excludes mobile", async ({ page }) => {
@@ -368,7 +362,7 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
   });
   test.skip(softwareRenderer, "Refinement requires a hardware renderer; run with PLAYWRIGHT_GPU=1 on a GPU host");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expectLoaded(page, "z-up-mini.stl");
   await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
   const previewPixels = PNG.sync.read(await page.locator("canvas").screenshot());
   await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
@@ -385,19 +379,21 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
     }
   }
   expect(shadowPixels).toBeGreaterThan(previewPixels.width * previewPixels.height * 0.003);
-  await selectRenderStyle(page.getByTestId("value-study-control"), "Stepped");
-  await page.getByRole("slider", { name: "Contrast", exact: true }).first().fill("2.5");
+  await selectStudy(page, 5);
+  await openTab(page, "Values");
+  await page.getByRole("slider", { name: "Contrast", exact: true }).fill("2.5");
   await expect(status).toContainText("Refined");
-  await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("4");
+  await openTab(page, "Light");
+  await page.getByRole("slider", { name: "Intensity", exact: true }).fill("4");
   await expect(status).toHaveText("Preview");
-  await page.getByTestId("desktop-light-setup").selectOption("dual");
-  await page.getByRole("slider", { name: "Azimuth", exact: true }).first().fill("350");
-  await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true }).first()).toHaveValue("170");
-  await page.getByRole("slider", { name: "Second Elevation", exact: true }).first().fill("25");
+  await selectSetup(page, "Double Directional");
+  await page.getByRole("slider", { name: "Azimuth", exact: true }).fill("350");
+  await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("170");
+  await page.getByRole("slider", { name: "Second Elevation", exact: true }).fill("25");
   await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
   await expect(status).toContainText("Refined", { timeout: 45000 });
-  await page.getByRole("slider", { name: "Azimuth", exact: true }).first().fill("0");
-  await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true }).first()).toHaveValue("180");
+  await page.getByRole("slider", { name: "Azimuth", exact: true }).fill("0");
+  await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("180");
   await expect(status).toHaveText("Preview");
   await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
   await page.getByRole("button", { name: "Stop Refinement", exact: true }).click();
@@ -410,14 +406,19 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
 test("links an opposing fill, unlinks without a jump, and restores settings and presets", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expectLoaded(page, "z-up-mini.stl");
   await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
-  await page.getByTestId("desktop-light-setup").selectOption("dual");
-  const opposite = page.getByRole("checkbox", { name: "Keep Second Light Opposite", exact: true }).first();
-  const azimuth = page.getByRole("slider", { name: "Azimuth", exact: true }).first();
-  const secondAzimuth = page.getByRole("slider", { name: "Second Azimuth", exact: true }).first();
-  const secondElevation = page.getByRole("slider", { name: "Second Elevation", exact: true }).first();
-  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true }).first();
+  await selectSetup(page, "Double Directional");
+  const opposite = page.getByRole("switch", { name: "Keep Second Light Opposite", exact: true });
+  const azimuth = page.getByRole("slider", { name: "Azimuth", exact: true });
+  const secondAzimuth = page.getByRole("slider", { name: "Second Azimuth", exact: true });
+  const secondElevation = page.getByRole("slider", { name: "Second Elevation", exact: true });
+  const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true });
+  const savePreset = async () => {
+    await openTab(page, "Presets");
+    await page.getByRole("button", { name: "Save current look", exact: true }).click();
+    await openTab(page, "Light");
+  };
   await expect(opposite).toBeChecked();
   await expect(secondAzimuth).toBeDisabled();
   await expect(secondAzimuth).toHaveValue("135");
@@ -427,13 +428,13 @@ test("links an opposing fill, unlinks without a jump, and restores settings and 
   await ratio.fill("1.2");
   await secondElevation.fill("25");
   await azimuth.fill("175");
-  await page.getByRole("button", { name: "Light direction pad", exact: true }).first().focus();
+  await page.getByRole("button", { name: "Light direction pad", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
   await expect(secondAzimuth).toHaveValue("0");
-  await page.getByRole("slider", { name: "Elevation", exact: true }).first().fill("60");
+  await page.getByRole("slider", { name: "Elevation", exact: true }).fill("60");
   await expect(secondElevation).toHaveValue("25");
   await expect(ratio).toHaveValue("1.2");
-  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await savePreset();
   const linkedImage = await page.locator("canvas").screenshot();
   await opposite.uncheck();
   await expect(secondAzimuth).toBeEnabled();
@@ -443,21 +444,26 @@ test("links an opposing fill, unlinks without a jump, and restores settings and 
   await expect(secondAzimuth).toHaveValue("0");
   await secondAzimuth.fill("40");
   await ratio.fill("0.8");
-  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await savePreset();
   await page.reload();
   await expect(opposite).not.toBeChecked();
   await expect(secondAzimuth).toHaveValue("40");
   await expect(ratio).toHaveValue("0.8");
-  await page.getByRole("button", { name: "Preset 1 smooth", exact: true }).first().click();
+  await openTab(page, "Presets");
+  await page.getByRole("button", { name: "Preset 1 Double Directional · smooth", exact: true }).click();
+  await openTab(page, "Light");
   await expect(opposite).toBeChecked();
   await expect(secondAzimuth).toHaveValue("0");
-  await page.getByRole("button", { name: "Preset 2 smooth", exact: true }).first().click();
+  await openTab(page, "Presets");
+  await page.getByRole("button", { name: "Preset 2 Double Directional · smooth", exact: true }).click();
+  await openTab(page, "Light");
   await expect(opposite).not.toBeChecked();
   await expect(secondAzimuth).toHaveValue("40");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "Light", exact: true }).click();
-  const mobile = page.locator(".mobile-sheet");
-  const mobileOpposite = mobile.getByRole("checkbox", { name: "Keep Second Light Opposite", exact: true });
+  const mobile = page.locator(".inspector");
+  await expect(page.locator("#inspector-body")).toBeVisible();
+  const mobileOpposite = mobile.getByRole("switch", { name: "Keep Second Light Opposite", exact: true });
   await mobileOpposite.check();
   await expect(mobile.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("270");
   await mobile.getByRole("slider", { name: "Second Elevation", exact: true }).fill("35");
@@ -472,77 +478,93 @@ test("links an opposing fill, unlinks without a jump, and restores settings and 
 test("compares colored lighting with neutral values and persists the colors", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
-  await page.getByTestId("desktop-light-setup").selectOption("dual");
-  const warmKey = page.getByRole("checkbox", { name: "Warm Key Light", exact: true }).first();
+  await expectLoaded(page, "z-up-mini.stl");
+  await selectSetup(page, "Double Directional");
+  const warmKey = page.getByRole("switch", { name: "Warm Key Light", exact: true });
+  const keyColor = page.getByLabel("Key Color", { exact: true });
+  const secondColor = page.getByLabel("Second Light Color", { exact: true });
+  const environmentColor = page.getByLabel("Environment Color", { exact: true });
+  const grayscaleSwitch = page.getByRole("switch", { name: "Neutral Grayscale", exact: true });
   await expect(warmKey).not.toBeChecked();
-  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ffffff");
-  await page.getByLabel("Key Color", { exact: true }).first().fill("#ee7040");
-  await page.getByLabel("Second Light Color", { exact: true }).first().fill("#507add");
-  await page.getByLabel("Environment Color", { exact: true }).first().fill("#d0dfef");
+  await expect(keyColor).toHaveValue("#ffffff");
+  await keyColor.fill("#ee7040");
+  await secondColor.fill("#507add");
+  await environmentColor.fill("#d0dfef");
   const grayscale = await page.locator("canvas").screenshot();
-  await page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first().uncheck();
+  await openTab(page, "Values");
+  await grayscaleSwitch.uncheck();
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(grayscale)).toBe(false);
 
   // Applying a fill palette preserves the chosen key and the dome direction.
-  const dome = page.getByRole("button", { name: "Light direction pad", exact: true }).first();
-  await dome.focus();
+  await openTab(page, "Light");
+  await page.getByRole("button", { name: "Light direction pad", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("slider", { name: "Azimuth", exact: true }).first()).toHaveValue("320");
-  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).first().click();
-  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
-  await expect(page.getByRole("slider", { name: "Azimuth", exact: true }).first()).toHaveValue("320");
-  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
-  await expect(page.getByLabel("Environment Color", { exact: true }).first()).toHaveValue("#b6c9e3");
-  await expect(page.getByLabel("Floor Color", { exact: true }).first()).toHaveValue("#78899f");
+  await expect(page.getByRole("slider", { name: "Azimuth", exact: true })).toHaveValue("320");
+  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
+  await expect(keyColor).toHaveValue("#ee7040");
+  await expect(page.getByRole("slider", { name: "Azimuth", exact: true })).toHaveValue("320");
+  await expect(secondColor).toHaveValue("#a8c7ef");
+  await expect(environmentColor).toHaveValue("#b6c9e3");
+  await openTab(page, "Scene");
+  await expect(page.getByLabel("Floor Color", { exact: true })).toHaveValue("#78899f");
   const coolFill = await page.locator("canvas").screenshot();
-  await page.getByRole("button", { name: "Monochrome", exact: true }).first().click();
-  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).toBeChecked();
+  await openTab(page, "Light");
+  await page.getByRole("button", { name: "Monochrome", exact: true }).click();
+  await expect(secondColor).toHaveValue("#a8c7ef");
+  await openTab(page, "Values");
+  await expect(grayscaleSwitch).toBeChecked();
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(coolFill)).toBe(false);
-  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
-  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).first().click();
+  await openTab(page, "Light");
+  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
   await page.reload();
-  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ee7040");
-  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
-  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+  await expect(keyColor).toHaveValue("#ee7040");
+  await expect(secondColor).toHaveValue("#a8c7ef");
+  await openTab(page, "Values");
+  await expect(grayscaleSwitch).not.toBeChecked();
 
-  await page.getByRole("button", { name: "Monochrome", exact: true }).first().click();
+  await openTab(page, "Light");
+  await page.getByRole("button", { name: "Monochrome", exact: true }).click();
   await warmKey.check();
-  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ffe2b3");
-  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
-  await expect(page.getByLabel("Environment Color", { exact: true }).first()).toHaveValue("#b6c9e3");
-  await expect(page.getByLabel("Floor Color", { exact: true }).first()).toHaveValue("#78899f");
-  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+  await expect(keyColor).toHaveValue("#ffe2b3");
+  await expect(secondColor).toHaveValue("#a8c7ef");
+  await expect(environmentColor).toHaveValue("#b6c9e3");
+  await openTab(page, "Scene");
+  await expect(page.getByLabel("Floor Color", { exact: true })).toHaveValue("#78899f");
+  await openTab(page, "Values");
+  await expect(grayscaleSwitch).not.toBeChecked();
   await page.reload();
   await expect(warmKey).toBeChecked();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "Light", exact: true }).click();
-  await page.locator(".mobile-sheet").getByRole("checkbox", { name: "Warm Key Light", exact: true }).uncheck();
-  await expect(page.locator(".mobile-sheet").getByLabel("Key Color", { exact: true })).toHaveValue("#ffffff");
-  await expect(page.locator(".mobile-sheet").getByLabel("Second Light Color", { exact: true })).toHaveValue("#a8c7ef");
-  await page.getByTestId("mobile-light-setup").selectOption("reflected");
-  await page.locator(".mobile-sheet").getByRole("button", { name: "Monochrome", exact: true }).click();
-  await page.locator(".mobile-sheet").getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
-  await expect(page.locator(".mobile-sheet").getByLabel("Environment Color", { exact: true })).toHaveValue("#b6c9e3");
-  await page.locator(".mobile-sheet").getByRole("checkbox", { name: "Warm Key Light", exact: true }).check();
-  await expect(page.locator(".mobile-sheet").getByLabel("Key Color", { exact: true })).toHaveValue("#ffe2b3");
-  await page.getByRole("tab", { name: "View", exact: true }).click();
-  await expect(page.locator(".mobile-sheet").getByRole("checkbox", { name: "Neutral Grayscale", exact: true })).not.toBeChecked();
+  const mobile = page.locator(".inspector");
+  await expect(page.locator("#inspector-body")).toBeVisible();
+  await mobile.getByRole("switch", { name: "Warm Key Light", exact: true }).uncheck();
+  await expect(mobile.getByLabel("Key Color", { exact: true })).toHaveValue("#ffffff");
+  await expect(mobile.getByLabel("Second Light Color", { exact: true })).toHaveValue("#a8c7ef");
+  await selectSetup(page, "Reflected Fill");
+  await mobile.getByRole("button", { name: "Monochrome", exact: true }).click();
+  await mobile.getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
+  await expect(mobile.getByLabel("Environment Color", { exact: true })).toHaveValue("#b6c9e3");
+  await mobile.getByRole("switch", { name: "Warm Key Light", exact: true }).check();
+  await expect(mobile.getByLabel("Key Color", { exact: true })).toHaveValue("#ffe2b3");
+  await page.getByRole("tab", { name: "Values", exact: true }).click();
+  await expect(mobile.getByRole("switch", { name: "Neutral Grayscale", exact: true })).not.toBeChecked();
 });
 
 test("increases value separation without flattening the illuminated shadows", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-  await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
+  await expectLoaded(page, "z-up-mini.stl");
   await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
   // A close, low studio source produces a continuous illumination gradient on
   // the existing small STL, so the test can inspect its darker value variations.
-  await page.getByTestId("desktop-light-setup").selectOption("local");
-  await page.getByRole("slider", { name: "Source Distance", exact: true }).first().fill("1");
-  await page.getByRole("slider", { name: "Intensity", exact: true }).first().fill("1");
-  await page.getByRole("slider", { name: "Elevation", exact: true }).first().fill("20");
-  const control = page.getByRole("slider", { name: "Contrast", exact: true }).first();
+  await selectSetup(page, "Local Studio");
+  await page.getByRole("slider", { name: "Source Distance", exact: true }).fill("1");
+  await page.getByRole("slider", { name: "Intensity", exact: true }).fill("1");
+  await page.getByRole("slider", { name: "Elevation", exact: true }).fill("20");
+  await openTab(page, "Values");
+  const control = page.getByRole("slider", { name: "Contrast", exact: true });
   await expect(control).toHaveValue("2.2");
   await control.fill("1");
   const neutral = PNG.sync.read(await page.locator("canvas").screenshot({ path: test.info().outputPath("contrast-neutral.png") }));

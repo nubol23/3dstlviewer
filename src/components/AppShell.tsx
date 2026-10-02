@@ -1,33 +1,28 @@
-import type {
-  ActiveTab,
-  AppAction,
-  AppState,
-  LoadedModel,
-  LightingMode,
-  OrientationAxis,
-  OrientationTurnOperation,
-  ValueRampState,
-  ValueRenderStyle,
-  ValueStepCount,
-} from "../types";
-import { Box, FolderOpen, RotateCcw, RotateCw, Lock, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
+import type { ActiveTab, AppAction, AppState, OrientationAxis } from "../types";
+import { Bookmark, Box, Contrast, FolderOpen, PanelRightClose, PanelRightOpen, RotateCcw, Scan, Sun } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
-import * as Toggle from "@radix-ui/react-toggle";
-import type { ChangeEvent, CSSProperties, Dispatch, ReactNode } from "react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ActionButton, RangeControl, SegmentedControl } from "./Controls";
+import { toast } from "sonner";
+import type { ChangeEvent, DragEvent, Dispatch, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { IconButton } from "./IconButton";
-import { SunDomeControl } from "./SunDomeControl";
-import { createValueRampColors } from "../lib/valueRamp";
-import { LIGHT_SETUPS } from "../state";
+import { StudyBar } from "./StudyBar";
+import { LightPanel } from "./panels/LightPanel";
+import { PresetsPanel } from "./panels/PresetsPanel";
+import { ScenePanel } from "./panels/ScenePanel";
+import { ValuesPanel } from "./panels/ValuesPanel";
 
-const RENDER_STYLE_OPTIONS = [
-  { value: "smooth", label: "Smooth" },
-  { value: "stepped", label: "Stepped" },
-] as const;
+export const SHEET_LAYOUT_QUERY = "(max-width: 760px), (max-width: 1024px) and (orientation: portrait)";
 
-const VALUE_STEP_COUNTS: readonly ValueStepCount[] = [3, 4, 5, 6, 7, 8];
-const WARM_KEY_COLOR = "#ffe2b3";
+type SheetState = "closed" | "half" | "full";
+
+const TABS: Array<{ value: ActiveTab; label: string; icon: ReactNode }> = [
+  { value: "light", label: "Light", icon: <Sun size={18} /> },
+  { value: "values", label: "Values", icon: <Contrast size={18} /> },
+  { value: "scene", label: "Scene", icon: <Box size={18} /> },
+  { value: "presets", label: "Presets", icon: <Bookmark size={18} /> },
+];
+
+const DRAG_THRESHOLD_PX = 6;
 
 type AppShellProps = {
   state: AppState;
@@ -40,321 +35,24 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-const ORIENTATION_AXES: OrientationAxis[] = ["x", "y", "z"];
-const MOBILE_TABS: Array<{ value: ActiveTab; label: string }> = [
-  { value: "light", label: "Light" },
-  { value: "model", label: "Model" },
-  { value: "view", label: "View" },
-];
-
-function FileSummary({ model }: { model: AppState["model"] }) {
-  if (!model) {
-    return (
-      <div className="panel-card">
-        <p className="muted">No STL loaded</p>
-        <p className="muted-small">Load a local STL to begin.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="panel-card">
-      <h4>{model.metadata.fileName}</h4>
-      <p>{(model.metadata.fileSize / 1024).toFixed(1)} KB</p>
-      <p>{model.metadata.triangleCount.toLocaleString()} tris</p>
-      <p>{new Date(model.metadata.loadedAt).toLocaleTimeString()}</p>
-    </div>
-  );
+function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback((onChange: () => void) => {
+    const list = window.matchMedia(query);
+    list.addEventListener("change", onChange);
+    return () => list.removeEventListener("change", onChange);
+  }, [query]);
+  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches);
 }
 
-function formatOrientationOperation(operation: OrientationTurnOperation): string {
-  const direction = operation.quarterTurns === 3 ? "-" : "+";
-  const degrees = operation.quarterTurns === 3 ? 90 : operation.quarterTurns * 90;
-  return `${operation.axis.toUpperCase()} ${direction}${degrees}°`;
+function snapSheet(height: number): SheetState {
+  const ratio = height / window.innerHeight;
+  if (ratio < 0.18) return "closed";
+  if (ratio < 0.58) return "half";
+  return "full";
 }
 
-function ModelOrientationControls({
-  model,
-  onRotateModel,
-  onResetModelOrientation,
-}: {
-  model: LoadedModel | null;
-  onRotateModel: (axis: OrientationAxis, quarterTurns: number) => void;
-  onResetModelOrientation: () => void;
-}) {
-  const disabled = !model;
-  const operations = model?.orientation.operations ?? [];
-
-  return (
-    <div className="orientation-control" data-testid="model-orientation-control">
-      <div className="orientation-control__readout" aria-label="Model orientation">
-        {operations.length ? (
-          operations.map((operation, index) => (
-            <span key={`${operation.axis}-${operation.quarterTurns}-${index}`}>
-              {index + 1}. {formatOrientationOperation(operation)}
-            </span>
-          ))
-        ) : (
-          <span>Identity</span>
-        )}
-      </div>
-      <div className="orientation-control__grid">
-        {ORIENTATION_AXES.map((axis) => (
-          <div className="orientation-control__axis" key={axis}>
-            <span>{axis.toUpperCase()}</span>
-            <button
-              type="button"
-              onClick={() => onRotateModel(axis, -1)}
-              disabled={disabled}
-              data-testid={`rotate-${axis}-negative`}
-              aria-label={`Rotate ${axis.toUpperCase()} negative 90 degrees`}
-            >
-              <RotateCcw size={14} />
-              <span>-90°</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onRotateModel(axis, 1)}
-              disabled={disabled}
-              data-testid={`rotate-${axis}-positive`}
-              aria-label={`Rotate ${axis.toUpperCase()} positive 90 degrees`}
-            >
-              <RotateCw size={14} />
-              <span>+90°</span>
-            </button>
-          </div>
-        ))}
-      </div>
-      <button
-        className="orientation-control__reset"
-        type="button"
-        onClick={onResetModelOrientation}
-        disabled={disabled}
-        data-testid="reset-model-orientation-button"
-      >
-        Reset Orientation
-      </button>
-    </div>
-  );
-}
-
-function FileInputControl({
-  id,
-  testId,
-  compact = false,
-  onChange,
-}: {
-  id: string;
-  testId: string;
-  compact?: boolean;
-  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <div className="toolbar__file-control">
-      <input
-        id={id}
-        className="toolbar__file-input visually-hidden"
-        data-testid={testId}
-        type="file"
-        accept=".stl"
-        onClick={(event) => {
-          event.currentTarget.value = "";
-        }}
-        onChange={onChange}
-      />
-      <label className="toolbar__file" htmlFor={id} aria-label={compact ? "Open STL" : undefined}>
-        <FolderOpen size={16} />
-        <span className={compact ? "visually-hidden" : undefined}>Open STL</span>
-      </label>
-    </div>
-  );
-}
-
-function ValueRampControl({
-  valueRamp,
-  renderStyle,
-  valueStepCount,
-  onChange,
-  testIdPrefix,
-}: {
-  valueRamp: ValueRampState;
-  renderStyle: ValueRenderStyle;
-  valueStepCount: ValueStepCount;
-  onChange: (patch: Partial<ValueRampState>) => void;
-  testIdPrefix: string;
-}) {
-  const previewColors = useMemo(
-    () => createValueRampColors(valueRamp, renderStyle === "smooth" ? 8 : valueStepCount),
-    [renderStyle, valueRamp, valueStepCount],
-  );
-
-  return (
-    <div className="value-ramp-control" data-testid={`${testIdPrefix}-value-ramp-control`}>
-      <div
-        className={`value-ramp-preview${renderStyle === "smooth" ? " is-smooth" : ""}`}
-        aria-label={
-          renderStyle === "smooth"
-            ? "Smooth value ramp preview"
-            : `${valueStepCount} value ramp preview`
-        }
-        data-testid={`${testIdPrefix}-value-ramp-preview`}
-        style={
-          {
-            "--value-count": previewColors.length,
-            "--value-ramp-gradient": `linear-gradient(90deg, ${previewColors.join(", ")})`,
-          } as CSSProperties
-        }
-      >
-        {renderStyle === "stepped" &&
-          previewColors.map((color, index) => (
-            <span key={`${color}-${index}`} style={{ backgroundColor: color }} />
-          ))}
-      </div>
-      <RangeControl
-        label="Shadow Value"
-        min={5}
-        max={40}
-        step={1}
-        value={valueRamp.shadowLightness}
-        onChange={(shadowLightness) => onChange({ shadowLightness })}
-        testId={`${testIdPrefix}-shadow-value-slider`}
-        formatValue={(value) => value.toFixed(0)}
-      />
-      <RangeControl
-        label="Highlight Value"
-        min={60}
-        max={98}
-        step={1}
-        value={valueRamp.highlightLightness}
-        onChange={(highlightLightness) => onChange({ highlightLightness })}
-        testId={`${testIdPrefix}-highlight-value-slider`}
-        formatValue={(value) => value.toFixed(0)}
-      />
-      <label className="control-hint"><input type="checkbox" checked={valueRamp.grayscale} onChange={e => onChange({ grayscale: e.target.checked })} /> Neutral Grayscale</label>
-      <RangeControl label="Exposure" min={0.1} max={4} step={0.05} value={valueRamp.exposure} onChange={exposure => onChange({ exposure })} />
-      <RangeControl label="Contrast" min={1} max={3} step={0.05} value={valueRamp.contrast} onChange={contrast => onChange({ contrast })} />
-      <p className="control-hint">Contrast separates light and shadow while retaining dark gradations. 1.00 is neutral.</p>
-      <RangeControl label="Smoothing Radius" min={0} max={4} step={0.25} value={valueRamp.smoothingRadius} onChange={smoothingRadius => onChange({ smoothingRadius })} formatValue={v => `${v.toFixed(2)} px`} />
-      <RangeControl
-        label="Band Bias"
-        min={-0.25}
-        max={0.25}
-        step={0.01}
-        value={valueRamp.bandBias}
-        onChange={(bandBias) => onChange({ bandBias })}
-        testId={`${testIdPrefix}-band-bias-slider`}
-        formatValue={(value) => (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2))}
-      />
-      {renderStyle === "stepped" && <details><summary>Band thresholds</summary>
-        {valueRamp.thresholds.map((threshold, index) => <RangeControl
-          key={index} label={`Boundary ${index + 1}`} min={index ? Math.round((valueRamp.thresholds[index - 1] + 0.01) * 100) / 100 : 0.01}
-          max={index < valueRamp.thresholds.length - 1 ? Math.round((valueRamp.thresholds[index + 1] - 0.01) * 100) / 100 : 0.99}
-          step={0.01} value={threshold} onChange={value => onChange({ thresholds: valueRamp.thresholds.map((v, i) => i === index ? value : v) })}
-        />)}
-      </details>}
-    </div>
-  );
-}
-
-function ValueStudyControl({
-  renderStyle,
-  valueStepCount,
-  onRenderStyleChange,
-  onValueStepCountChange,
-  testId,
-}: {
-  renderStyle: ValueRenderStyle;
-  valueStepCount: ValueStepCount;
-  onRenderStyleChange: (renderStyle: ValueRenderStyle) => void;
-  onValueStepCountChange: (valueStepCount: ValueStepCount) => void;
-  testId: string;
-}) {
-  return (
-    <div className="value-study-control" data-testid={testId}>
-      <SegmentedControl
-        options={RENDER_STYLE_OPTIONS}
-        value={renderStyle}
-        onChange={onRenderStyleChange}
-        ariaLabel="Value rendering"
-        name={`${testId}-render-style`}
-      />
-      <label className="value-count-control">
-        <span>Values</span>
-        <select
-          aria-label="Values"
-          data-testid={`${testId}-value-count`}
-          value={valueStepCount}
-          disabled={renderStyle === "smooth"}
-          onChange={(event) => onValueStepCountChange(Number(event.target.value) as ValueStepCount)}
-        >
-          {VALUE_STEP_COUNTS.map((count) => (
-            <option key={count} value={count}>
-              {count} values
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-
-function LightingModeControl({
-  lightingMode,
-  onChange,
-  disabled,
-  name,
-  testId,
-}: {
-  lightingMode: LightingMode;
-  onChange: (lightingMode: LightingMode) => void;
-  disabled: boolean;
-  name: string;
-  testId: string;
-}) {
-  return (
-    <label className="light-setup-control" data-testid={testId}>
-      <span>Lighting model</span>
-      <select aria-label="Lighting model" name={name} value={lightingMode} disabled={disabled} onChange={e => onChange(e.target.value as LightingMode)}>
-        {LIGHT_SETUPS.map(setup => <option key={setup.id} value={setup.lightingMode}>{setup.name}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function LightSetupControl({
-  disabled,
-  onApply,
-  testId,
-}: {
-  disabled: boolean;
-  onApply: (setupId: string) => void;
-  testId: string;
-}) {
-  return (
-    <label className="light-setup-control">
-      <span>Apply Lighting Setup</span>
-      <select
-        aria-label="Apply Lighting Setup"
-        data-testid={testId}
-        disabled={disabled}
-        value=""
-        onChange={(event) => {
-          if (event.target.value) {
-            onApply(event.target.value);
-          }
-        }}
-      >
-        <option value="" disabled>
-          Choose setup…
-        </option>
-        {LIGHT_SETUPS.map((setup) => (
-          <option key={setup.id} value={setup.id}>
-            {setup.name}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+function hasFiles(event: DragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types).includes("Files");
 }
 
 export function AppShell({
@@ -367,91 +65,41 @@ export function AppShell({
   onResetModelOrientation,
   children,
 }: AppShellProps) {
-  const lightLocked = state.light.locked;
-  const desktopFileInputId = useId();
-  const mobileFileInputId = useId();
-  const mobileSheetBodyRef = useRef<HTMLDivElement>(null);
-  const [isViewerMaximized, setIsViewerMaximized] = useState(false);
+  const sheetLayout = useMediaQuery(SHEET_LAYOUT_QUERY);
+  const [sheet, setSheet] = useState<SheetState>("closed");
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [sheetDragging, setSheetDragging] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const tabWasActiveRef = useRef(false);
+  const dragDepthRef = useRef(0);
+  const sheetDragRef = useRef<{ startY: number; startHeight: number; moved: boolean } | null>(null);
+  const suppressHandleClickRef = useRef(false);
+  const sheetOpen = !sheetLayout || sheet !== "closed" || sheetDragging;
 
   useEffect(() => {
-    if (mobileSheetBodyRef.current) {
-      mobileSheetBodyRef.current.scrollTop = 0;
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = 0;
     }
   }, [state.activeTab]);
 
   useEffect(() => {
-    if (!isViewerMaximized) {
+    if (!sheetLayout || sheet === "closed") {
       return;
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsViewerMaximized(false);
+        setSheet("closed");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isViewerMaximized]);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [sheet, sheetLayout]);
 
-  const handleLockToggle = () => {
-    dispatch({ type: "toggle-lock" });
-  };
-
-  const handleLightChange = (patch: Partial<AppState["light"]>) => {
-    dispatch({ type: "set-light", patch });
-  };
-
-  const setFloor = (patch: Partial<AppState["floor"]>) => {
-    dispatch({ type: "set-floor", patch });
-  };
-
-  const setRenderStyle = (renderStyle: AppState["renderStyle"]) => {
-    dispatch({ type: "set-render-style", renderStyle });
-  };
-
-  const setValueStepCount = (valueStepCount: AppState["valueStepCount"]) => {
-    dispatch({ type: "set-value-step-count", valueStepCount });
-  };
-
-  const setValueRamp = (patch: Partial<ValueRampState>) => {
-    dispatch({ type: "set-value-ramp", patch });
-  };
-
-  const setLightingMode = (lightingMode: LightingMode) => {
-    dispatch({ type: "set-lighting-mode", lightingMode });
-  };
-
-  const applyLightSetup = (setupId: string) => {
-    dispatch({ type: "apply-light-setup", setupId });
-  };
-
-  const applyCoolFill = () => {
-    handleLightChange({ secondaryColor: "#a8c7ef", environmentColor: "#b6c9e3" });
-    setFloor({ color: "#78899f" });
-    setValueRamp({ grayscale: false });
-  };
-
-  const fillColorControls = (state.lightingMode === "dual" || state.lightingMode === "reflected") && <>
-    <div className="button-row">
-      <button type="button" disabled={lightLocked} onClick={applyCoolFill}>Cool Blue Fill</button>
-      <button type="button" onClick={() => setValueRamp({ grayscale: true })}>Monochrome</button>
-    </div>
-    <p className="control-hint">Muted blue secondary light and blue-gray sky/ground fill. Individual colors remain adjustable.</p>
-  </>;
-
-  const warmKeyControl = <label className="control-hint">
-    <input type="checkbox" checked={state.light.keyColor.toLowerCase() === WARM_KEY_COLOR} disabled={lightLocked} onChange={event => {
-      handleLightChange({ keyColor: event.target.checked ? WARM_KEY_COLOR : "#ffffff" });
-      if (event.target.checked) setValueRamp({ grayscale: false });
-    }} /> Warm Key Light
-  </label>;
-
-  const loadPreset = (presetId: string) => {
-    dispatch({ type: "load-preset", presetId });
-  };
+  const openFilePicker = () => fileInputRef.current?.click();
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -461,339 +109,226 @@ export function AppShell({
     }
   };
 
-  const setMobileTab = (activeTab: ActiveTab) => {
-    dispatch({ type: "set-active-tab", activeTab });
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDropActive(true);
   };
 
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDropActive(false);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDropActive(false);
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".stl")) {
+      toast.error(`${file.name} is not an STL file. Drop a .stl file to open it.`);
+      return;
+    }
+    onFileSelected(file);
+  };
+
+  const handleTabClick = (value: ActiveTab) => {
+    if (!sheetLayout) return;
+    if (sheet === "closed") {
+      setSheet("half");
+    } else if (tabWasActiveRef.current && value === state.activeTab) {
+      setSheet("closed");
+    }
+  };
+
+  const handleSheetPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sheetDragRef.current = {
+      startY: event.clientY,
+      startHeight: sheet === "closed" ? 0 : bodyRef.current?.getBoundingClientRect().height ?? 0,
+      moved: false,
+    };
+  };
+
+  const handleSheetPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = sheetDragRef.current;
+    const body = bodyRef.current;
+    if (!drag || !body) return;
+    const delta = drag.startY - event.clientY;
+    if (!drag.moved && Math.abs(delta) < DRAG_THRESHOLD_PX) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      setSheetDragging(true);
+    }
+    const height = Math.min(window.innerHeight * 0.8, Math.max(0, drag.startHeight + delta));
+    body.style.height = `${height}px`;
+  };
+
+  const handleSheetPointerEnd = () => {
+    const drag = sheetDragRef.current;
+    sheetDragRef.current = null;
+    if (!drag?.moved) return;
+    const body = bodyRef.current;
+    const height = body?.getBoundingClientRect().height ?? 0;
+    if (body) body.style.height = "";
+    suppressHandleClickRef.current = true;
+    setSheetDragging(false);
+    setSheet(snapSheet(height));
+  };
+
+  const handleSheetHandleClick = () => {
+    if (suppressHandleClickRef.current) {
+      suppressHandleClickRef.current = false;
+      return;
+    }
+    setSheet((current) => (current === "half" ? "full" : current === "full" ? "closed" : "half"));
+  };
+
+  const sheetHandleLabel = sheet === "closed" ? "Show controls" : sheet === "half" ? "Expand controls" : "Hide controls";
+
   return (
-    <div className={`app-shell${isViewerMaximized ? " is-viewer-maximized" : ""}`}>
-      <header className="toolbar desktop-toolbar">
-        <div className="toolbar__brand">
-          <Box size={24} className="brand-mark" />
-          <span className="toolbar__title">Miniature Light Studio</span>
+    <div
+      className="app-shell"
+      data-layout={sheetLayout ? "sheet" : "sidebar"}
+      data-panel={panelOpen ? "open" : "closed"}
+      data-sheet={sheetLayout ? sheet : undefined}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <header className="app-bar">
+        <div className="brand">
+          <span className="brand__mark" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+          <span className="brand__name">Miniature Light Studio</span>
         </div>
-        <div className="toolbar__actions">
-          <FileInputControl id={desktopFileInputId} testId="stl-file-input" onChange={handleFileChange} />
-          <IconButton icon={<RotateCcw size={16} />} onClick={onResetView} data-testid="reset-view-button">
-            Reset View
-          </IconButton>
-          <Toggle.Root
-            className={`icon-btn icon-btn-ghost${lightLocked ? " is-active" : ""}`}
-            pressed={lightLocked}
-            onPressedChange={handleLockToggle}
-            data-testid="lock-light-button"
-          >
-            <span className="icon-btn__icon">
-              <Lock size={16} />
-            </span>
-            <span className="icon-btn__label">Lock Light</span>
-          </Toggle.Root>
-          <ValueStudyControl
-            renderStyle={state.renderStyle}
-            valueStepCount={state.valueStepCount}
-            onRenderStyleChange={setRenderStyle}
-            onValueStepCountChange={setValueStepCount}
-            testId="value-study-control"
+        {state.model && (
+          <p className="app-bar__file" title={state.model.metadata.fileName}>
+            <span className="app-bar__file-name">{state.model.metadata.fileName}</span>
+            <span className="app-bar__file-meta">{state.model.metadata.triangleCount.toLocaleString()} tris</span>
+          </p>
+        )}
+        <div className="app-bar__actions">
+          <input
+            ref={fileInputRef}
+            className="visually-hidden"
+            data-testid="stl-file-input"
+            type="file"
+            accept=".stl"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={handleFileChange}
           />
+          <button type="button" className="btn btn--primary app-bar__open" onClick={openFilePicker} aria-busy={state.isLoading}>
+            <FolderOpen size={16} aria-hidden="true" />
+            <span className="app-bar__open-label">Open STL</span>
+          </button>
+          {!sheetLayout && (
+            <IconButton
+              icon={panelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              label={panelOpen ? "Hide controls" : "Show controls"}
+              aria-expanded={panelOpen}
+              aria-controls="inspector"
+              onClick={() => setPanelOpen((open) => !open)}
+            />
+          )}
         </div>
       </header>
 
-      <header className="toolbar mobile-toolbar">
-        <div className="mobile-toolbar__brand">
-          <Box size={24} />
-          <span>
-            <strong>STL Viewer</strong>
-            <small>Value Study</small>
-          </span>
-        </div>
-        <div className="mobile-toolbar__actions">
-          <FileInputControl id={mobileFileInputId} testId="mobile-stl-file-input" compact onChange={handleFileChange} />
-          <button className="mobile-toolbar__icon" type="button" onClick={onResetView} aria-label="Reset View">
-            <RotateCcw size={16} />
-          </button>
+      <main className="viewport" aria-label="Model viewer">
+        {children}
+        {state.model && (
+          <div className="view-tools" role="toolbar" aria-label="Camera">
+            <IconButton icon={<Scan size={18} />} label="Fit to View" onClick={onFitToView} data-testid="fit-view-button" />
+            <IconButton icon={<RotateCcw size={18} />} label="Reset View" onClick={onResetView} data-testid="reset-view-button" />
+          </div>
+        )}
+        {!state.model && !state.isLoading && (
+          <div className="empty-card">
+            <h2>Open an STL to study its values</h2>
+            <p>Drop a file anywhere, or choose one. It is read on this device and never uploaded.</p>
+            <button type="button" className="btn btn--primary" onClick={openFilePicker}>
+              <FolderOpen size={16} aria-hidden="true" />
+              <span>Choose STL file</span>
+            </button>
+          </div>
+        )}
+        <StudyBar state={state} dispatch={dispatch} />
+        {dropActive && (
+          <div className="drop-overlay" aria-hidden="true">
+            <span>Drop the STL to open it</span>
+          </div>
+        )}
+      </main>
+
+      <Tabs.Root
+        id="inspector"
+        className="inspector"
+        data-sheet={sheetLayout ? sheet : undefined}
+        data-dragging={sheetDragging || undefined}
+        hidden={!sheetLayout && !panelOpen}
+        value={state.activeTab}
+        onValueChange={(value) => dispatch({ type: "set-active-tab", activeTab: value as ActiveTab })}
+      >
+        {sheetLayout && (
           <button
-            className={`mobile-toolbar__icon${isViewerMaximized ? " is-active" : ""}`}
             type="button"
-            onClick={() => setIsViewerMaximized((current) => !current)}
-            aria-label="Maximize Viewer"
-            aria-pressed={isViewerMaximized}
-            data-testid="maximize-viewer-button"
+            className="sheet-handle"
+            aria-label={sheetHandleLabel}
+            aria-expanded={sheet !== "closed"}
+            aria-controls="inspector-body"
+            onClick={handleSheetHandleClick}
+            onPointerDown={handleSheetPointerDown}
+            onPointerMove={handleSheetPointerMove}
+            onPointerUp={handleSheetPointerEnd}
+            onPointerCancel={handleSheetPointerEnd}
           >
-            {isViewerMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            <span aria-hidden="true" />
           </button>
-          <Toggle.Root
-            className={`mobile-toolbar__icon${lightLocked ? " is-active" : ""}`}
-            pressed={lightLocked}
-            onPressedChange={handleLockToggle}
-            aria-label="Lock Light"
-          >
-            <Lock size={16} />
-          </Toggle.Root>
-        </div>
-      </header>
-
-      <div className="workbench">
-        <aside className="panel panel-left">
-          <section className="panel-section">
-            <div className="panel-section__header">
-              <h3>Model</h3>
-              <span className="status-chip">{state.model ? "Loaded" : "Empty"}</span>
-            </div>
-            <FileSummary model={state.model} />
-            {state.isLoading && (
-              <div className="status-line" data-testid="loading-state" aria-hidden="true">
-                Loading STL...
-              </div>
-            )}
-            <div className="button-row">
-              <button type="button" onClick={onFitToView} disabled={!state.model} data-testid="fit-view-button">
-                Fit to View
-              </button>
-              <button type="button" onClick={onResetView} data-testid="panel-reset-view-button">
-                Reset View
-              </button>
-            </div>
-            <div className="panel-section__header">
-              <h3>Orientation</h3>
-            </div>
-            <ModelOrientationControls
-              model={state.model}
+        )}
+        <Tabs.List className="inspector__tabs" aria-label="Controls">
+          {TABS.map((tab) => (
+            <Tabs.Trigger
+              key={tab.value}
+              className="inspector__tab"
+              value={tab.value}
+              onMouseDown={() => { tabWasActiveRef.current = state.activeTab === tab.value; }}
+              onKeyDown={() => { tabWasActiveRef.current = state.activeTab === tab.value; }}
+              onClick={() => handleTabClick(tab.value)}
+            >
+              <span aria-hidden="true">{tab.icon}</span>
+              <span>{tab.label}</span>
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+        <div id="inspector-body" className="inspector__body" ref={bodyRef} hidden={!sheetOpen}>
+          <Tabs.Content value="light" className="inspector__panel">
+            <LightPanel state={state} dispatch={dispatch} />
+          </Tabs.Content>
+          <Tabs.Content value="values" className="inspector__panel">
+            <ValuesPanel state={state} dispatch={dispatch} />
+          </Tabs.Content>
+          <Tabs.Content value="scene" className="inspector__panel">
+            <ScenePanel
+              state={state}
+              dispatch={dispatch}
+              onOpenFile={openFilePicker}
               onRotateModel={onRotateModel}
               onResetModelOrientation={onResetModelOrientation}
             />
-          </section>
-
-          <section className="panel-section">
-            <div className="panel-section__header">
-              <h3>Value Ramp</h3>
-            </div>
-            <ValueRampControl
-              valueRamp={state.valueRamp}
-              renderStyle={state.renderStyle}
-              valueStepCount={state.valueStepCount}
-              onChange={setValueRamp}
-              testIdPrefix="desktop"
-            />
-            <p className="control-hint">
-              3–5 values simplify major light masses; 6–8 reveal finer transitions.
-            </p>
-          </section>
-
-          <section className="panel-section">
-            <div className="panel-section__header">
-              <h3>Floor</h3>
-            </div>
-            <RangeControl label="Ground Reflectance" min={0} max={1} step={0.01} value={state.floor.reflectance} onChange={reflectance => setFloor({ reflectance })} />
-            <label className="floor-color">
-              <span>Floor Color</span>
-              <input type="color" value={state.floor.color} onChange={(event) => setFloor({ color: event.target.value })} />
-            </label>
-          </section>
-
-          <section className="panel-section">
-            <div className="panel-section__header">
-              <h3>Presets</h3>
-              <ActionButton
-                icon={<SlidersHorizontal size={14} />}
-                label="Save"
-                onClick={() => dispatch({ type: "save-preset" })}
-                disabled={lightLocked}
-              />
-            </div>
-            <div className="preset-list">
-              {state.presets.map((preset) => (
-                <button
-                  type="button"
-                  key={preset.id}
-                  className="preset-item"
-                  onClick={() => loadPreset(preset.id)}
-                  disabled={lightLocked}
-                  title={preset.name}
-                >
-                  <span>{preset.name}</span>
-                  <span>
-                    {preset.renderStyle === "smooth" ? "smooth" : `${preset.valueStepCount} values`}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-        </aside>
-
-        <main className="viewport">
-          {children}
-        </main>
-
-        <aside className="panel panel-right desktop-only">
-          <section className="panel-section">
-            <div className="panel-section__header">
-              <h3>Lighting</h3>
-              <button type="button" onClick={() => dispatch({ type: "reset-light" })} disabled={lightLocked} data-testid="reset-light-button">
-                Reset Light
-              </button>
-            </div>
-            <LightingModeControl
-              lightingMode={state.lightingMode}
-              onChange={setLightingMode}
-              disabled={lightLocked}
-              name="desktop-lighting-mode"
-              testId="desktop-lighting-mode-control"
-            />
-            <LightSetupControl
-              disabled={lightLocked}
-              onApply={applyLightSetup}
-              testId="desktop-light-setup"
-            />
-            {fillColorControls}
-            {warmKeyControl}
-            <SunDomeControl
-              light={state.light}
-              onChange={handleLightChange}
-              disabled={lightLocked}
-              lightingMode={state.lightingMode}
-            />
-          </section>
-        </aside>
-      </div>
-
-      <Tabs.Root
-        className="mobile-sheet"
-        value={state.activeTab}
-        onValueChange={(value) => setMobileTab(value as ActiveTab)}
-        hidden={isViewerMaximized}
-      >
-        <Tabs.List className="mobile-sheet__tabs" aria-label="Mobile controls">
-          {MOBILE_TABS.map((tab) => {
-            const active = state.activeTab === tab.value;
-            return (
-              <Tabs.Trigger
-                key={tab.value}
-                className={active ? "is-active" : ""}
-                value={tab.value}
-              >
-                {tab.label}
-              </Tabs.Trigger>
-            );
-          })}
-        </Tabs.List>
-        <div className="mobile-sheet__body" ref={mobileSheetBodyRef}>
-          <Tabs.Content value="light">
-            <section className="panel-section">
-              <LightingModeControl
-                lightingMode={state.lightingMode}
-                onChange={setLightingMode}
-                disabled={lightLocked}
-                name="mobile-lighting-mode"
-                testId="mobile-lighting-mode-control"
-              />
-              {fillColorControls}
-              <SunDomeControl
-                light={state.light}
-                onChange={handleLightChange}
-                disabled={lightLocked}
-                lightingMode={state.lightingMode}
-              />
-              {warmKeyControl}
-              <LightSetupControl
-                disabled={lightLocked}
-                onApply={applyLightSetup}
-                testId="mobile-light-setup"
-              />
-            </section>
           </Tabs.Content>
-          <Tabs.Content value="model">
-            <section className="panel-section">
-              <div className="panel-section__header">
-                <h3>Model</h3>
-                <span className="status-chip">{state.model ? "Loaded" : "Empty"}</span>
-              </div>
-              <FileSummary model={state.model} />
-              {state.isLoading && <div className="status-line" aria-hidden="true">Loading STL...</div>}
-              <div className="button-row">
-                <button type="button" onClick={onFitToView} disabled={!state.model}>
-                  Fit to View
-                </button>
-                <button type="button" onClick={onResetView}>
-                  Reset View
-                </button>
-              </div>
-              <div className="panel-section__header">
-                <h3>Orientation</h3>
-              </div>
-              <ModelOrientationControls
-                model={state.model}
-                onRotateModel={onRotateModel}
-                onResetModelOrientation={onResetModelOrientation}
-              />
-            </section>
-            <section className="panel-section">
-              <div className="panel-section__header">
-                <h3>Presets</h3>
-                <ActionButton
-                  icon={<SlidersHorizontal size={14} />}
-                  label="Save"
-                  onClick={() => dispatch({ type: "save-preset" })}
-                  disabled={lightLocked}
-                />
-              </div>
-              <div className="preset-list">
-                {state.presets.map((preset) => (
-                  <button
-                    type="button"
-                    key={preset.id}
-                    className="preset-item"
-                    onClick={() => loadPreset(preset.id)}
-                    disabled={lightLocked}
-                    title={preset.name}
-                  >
-                    <span>{preset.name}</span>
-                    <span>
-                      {preset.renderStyle === "smooth"
-                        ? "smooth"
-                        : `${preset.valueStepCount} values`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </Tabs.Content>
-          <Tabs.Content value="view">
-            <div className="mobile-sheet__stack">
-              <section className="panel-section">
-                <h3>View</h3>
-                <ValueStudyControl
-                  renderStyle={state.renderStyle}
-                  valueStepCount={state.valueStepCount}
-                  onRenderStyleChange={setRenderStyle}
-                  onValueStepCountChange={setValueStepCount}
-                  testId="mobile-value-study-control"
-                />
-                <ValueRampControl
-                  valueRamp={state.valueRamp}
-                  renderStyle={state.renderStyle}
-                  valueStepCount={state.valueStepCount}
-                  onChange={setValueRamp}
-                  testIdPrefix="mobile"
-                />
-                <p className="control-hint">
-                  3–5 values simplify major light masses; 6–8 reveal finer transitions.
-                </p>
-              </section>
-              <section className="panel-section">
-                <div className="panel-section__header">
-                  <h3>Floor</h3>
-                </div>
-                <RangeControl label="Ground Reflectance" min={0} max={1} step={0.01} value={state.floor.reflectance} onChange={reflectance => setFloor({ reflectance })} />
-            <label className="floor-color">
-                  <span>Floor Color</span>
-                  <input
-                    type="color"
-                    value={state.floor.color}
-                    onChange={(event) => setFloor({ color: event.target.value })}
-                  />
-                </label>
-              </section>
-            </div>
+          <Tabs.Content value="presets" className="inspector__panel">
+            <PresetsPanel state={state} dispatch={dispatch} />
           </Tabs.Content>
         </div>
       </Tabs.Root>

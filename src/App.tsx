@@ -141,7 +141,13 @@ export default function App() {
       >
         <ViewerCanvas ref={cameraApiRef} state={state} />
       </AppShell>
-      <Toaster richColors position="top-center" />
+      <Toaster
+        theme="dark"
+        position="top-center"
+        offset={64}
+        mobileOffset={{ top: 60 }}
+        toastOptions={{ style: { background: "#2b2b2b", borderColor: "#555555", color: "#ececec" } }}
+      />
     </>
   );
 }

@@ -252,7 +252,7 @@ const LIGHTING_MODE_SCHEMA = z.enum(["directional", "zenithal", "broad-zenithal"
   error: (issue) => `Unsupported lighting mode: ${String(issue.input)}`,
 });
 
-const ACTIVE_TAB_SCHEMA = z.enum(["light", "model", "view"], {
+const ACTIVE_TAB_SCHEMA = z.enum(["light", "values", "scene", "presets"], {
   error: (issue) => `Unsupported active tab: ${String(issue.input)}`,
 });
 

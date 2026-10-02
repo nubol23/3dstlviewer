@@ -1,32 +1,31 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
-type Variant = "solid" | "ghost" | "danger";
-
 type IconButtonProps = {
-  children: ReactNode;
-  icon?: ReactNode;
-  variant?: Variant;
-  isActive?: boolean;
-} & ComponentPropsWithoutRef<"button">;
+  icon: ReactNode;
+  label: string;
+  showLabel?: boolean;
+  variant?: "ghost" | "solid" | "primary";
+} & Omit<ComponentPropsWithoutRef<"button">, "children">;
 
 export function IconButton({
-  children,
   icon,
+  label,
+  showLabel = false,
   variant = "ghost",
-  isActive,
-  disabled,
   className,
+  type = "button",
   ...props
 }: IconButtonProps) {
   return (
     <button
-      className={`icon-btn icon-btn-${variant}${isActive ? " is-active" : ""}${disabled ? " is-disabled" : ""} ${className ?? ""}`}
-      disabled={disabled}
+      type={type}
+      className={`btn btn--${variant}${showLabel ? "" : " btn--icon"}${className ? ` ${className}` : ""}`}
+      aria-label={showLabel ? undefined : label}
+      title={showLabel ? undefined : label}
       {...props}
     >
-      {icon ? <span className="icon-btn__icon">{icon}</span> : null}
-      <span className="icon-btn__label">{children}</span>
+      <span className="btn__icon" aria-hidden="true">{icon}</span>
+      {showLabel && <span className="btn__label">{label}</span>}
     </button>
   );
 }
-

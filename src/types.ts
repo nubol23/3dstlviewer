@@ -6,7 +6,7 @@ export type ValueStepCount = 3 | 4 | 5 | 6 | 7 | 8;
 
 export type LightingMode = "directional" | "zenithal" | "broad-zenithal" | "local" | "dual" | "reflected";
 
-export type ActiveTab = "light" | "model" | "view";
+export type ActiveTab = "light" | "values" | "scene" | "presets";
 
 export type OrientationTurn = 0 | 1 | 2 | 3;
 

@@ -1,5 +1,5 @@
-import { useCallback, useId, useMemo, useRef } from "react";
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useId, useRef } from "react";
+import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { LightState, LightingMode } from "../types";
 import { RangeControl } from "./Controls";
 
@@ -14,13 +14,15 @@ const MIN_ELEVATION = -78;
 const MAX_ELEVATION = 90;
 const ELEVATION_RANGE = MAX_ELEVATION - MIN_ELEVATION;
 const AZIMUTH_DEAD_ZONE = 0.09;
+const DOME_INSET_PX = 14;
+const HORIZON_RADIUS = Math.sqrt(MAX_ELEVATION / ELEVATION_RANGE);
 
 function toRads(value: number): number {
   return (value * Math.PI) / 180;
 }
 
-function formatInt(v: number): string {
-  return `${v.toFixed(0)}°`;
+function formatDegrees(value: number): string {
+  return `${value.toFixed(0)}°`;
 }
 
 function toClamped(value: number): number {
@@ -68,14 +70,23 @@ export function domePointToLightDirection(
   };
 }
 
+function markerStyle(point: { x: number; y: number }): CSSProperties {
+  return {
+    left: `calc(50% + ${point.x} * (50% - ${DOME_INSET_PX}px))`,
+    top: `calc(50% + ${point.y} * (50% - ${DOME_INSET_PX}px))`,
+  };
+}
+
 export function SunDomeControl({ light, onChange, disabled = false, lightingMode = "directional" }: SunDomeControlProps) {
   const domeRef = useRef<HTMLButtonElement | null>(null);
   const pointerActive = useRef(false);
   const readoutId = useId();
   const classicTop = lightingMode === "zenithal" || lightingMode === "broad-zenithal";
   const directionDisabled = disabled || classicTop;
-
-  const spherePosition = useMemo(() => projectLightToDomePoint(light), [light]);
+  const keyPoint = classicTop ? { x: 0, y: 0 } : projectLightToDomePoint(light);
+  const secondPoint = lightingMode === "dual"
+    ? projectLightToDomePoint({ azimuthDeg: light.secondaryAzimuthDeg, elevationDeg: light.secondaryElevationDeg })
+    : null;
 
   const setFromPointer = useCallback(
     (event: PointerEvent | ReactPointerEvent<HTMLElement>) => {
@@ -86,7 +97,7 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
       const rect = domeRef.current.getBoundingClientRect();
       const x = event.clientX - rect.left - rect.width / 2;
       const y = event.clientY - rect.top - rect.height / 2;
-      const radius = Math.min(rect.width, rect.height) / 2 - 14;
+      const radius = Math.min(rect.width, rect.height) / 2 - DOME_INSET_PX;
       if (radius <= 0) {
         return;
       }
@@ -124,15 +135,9 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
     [directionDisabled, setFromPointer],
   );
 
-  const onPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (directionDisabled) return;
-      pointerActive.current = false;
-      if (!domeRef.current) return;
-      domeRef.current.releasePointerCapture(event.pointerId);
-    },
-    [directionDisabled],
-  );
+  const endPointer = useCallback(() => {
+    pointerActive.current = false;
+  }, []);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -162,21 +167,16 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
     [directionDisabled, light.azimuthDeg, light.elevationDeg, onChange],
   );
 
-  const distanceRing = Math.max(22, Math.min(46, 24 + light.distance * 4));
-  const markerLeft = 50 + spherePosition.x * distanceRing;
-  const markerTop = 50 + spherePosition.y * distanceRing;
-  const directionReadout = `Azimuth ${light.azimuthDeg.toFixed(0)} degrees, elevation ${light.elevationDeg.toFixed(0)} degrees`;
+  const directionReadout = classicTop
+    ? "Light is directly overhead"
+    : `Azimuth ${light.azimuthDeg.toFixed(0)} degrees, elevation ${light.elevationDeg.toFixed(0)} degrees`;
 
   return (
-    <section className={`sun-dome-panel${classicTop ? " is-classic-top" : ""}`} aria-label="Lighting direction">
-      <div className="sun-dome__title">
-        <span>Direction</span>
-        <span>{classicTop ? "Overhead" : `Az ${formatInt(light.azimuthDeg)} • El ${formatInt(light.elevationDeg)}`}</span>
-      </div>
-      <div className="sun-dome-panel__primary">
+    <div className="dome-control" data-overhead={classicTop || undefined}>
+      <div className="dome-control__pad">
         <button
           type="button"
-          className="sun-dome"
+          className="dome"
           data-testid="sun-dome"
           ref={domeRef}
           aria-label="Light direction pad"
@@ -184,20 +184,25 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
           disabled={directionDisabled}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+          onPointerUp={endPointer}
+          onLostPointerCapture={endPointer}
           onKeyDown={onKeyDown}
         >
           <span
-            className="sun-dome__ring"
-            style={{
-              width: `${distanceRing * 2}%`,
-              height: `${distanceRing * 2}%`,
-            }}
+            className="dome__horizon"
+            style={{ width: `calc(${HORIZON_RADIUS} * (100% - ${DOME_INSET_PX * 2}px))` }}
+            aria-hidden="true"
           />
-          <span className="sun-dome__marker" style={{ left: `${markerLeft}%`, top: `${markerTop}%` }} />
+          <span className="dome__axis dome__axis--h" aria-hidden="true" />
+          <span className="dome__axis dome__axis--v" aria-hidden="true" />
+          <span className="dome__compass dome__compass--front" aria-hidden="true">Front</span>
+          <span className="dome__compass dome__compass--back" aria-hidden="true">Back</span>
+          <span className="dome__compass dome__compass--left" aria-hidden="true">L</span>
+          <span className="dome__compass dome__compass--right" aria-hidden="true">R</span>
+          {secondPoint && <span className="dome__marker dome__marker--second" style={markerStyle(secondPoint)} aria-hidden="true" />}
+          <span className="dome__marker" style={markerStyle(keyPoint)} aria-hidden="true" />
         </button>
-        <div className="sun-dome__sliders sun-dome__sliders--axes">
+        <div className="dome-control__sliders">
           <RangeControl
             label="Azimuth"
             value={light.azimuthDeg}
@@ -207,7 +212,7 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
             onChange={(value) => onChange({ azimuthDeg: value })}
             disabled={directionDisabled}
             testId="light-azimuth-slider"
-            formatValue={(value) => `${value.toFixed(0)}°`}
+            formatValue={formatDegrees}
           />
           <RangeControl
             label="Elevation"
@@ -218,74 +223,18 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
             onChange={(value) => onChange({ elevationDeg: value })}
             disabled={directionDisabled}
             testId="light-elevation-slider"
-            formatValue={(value) => `${value.toFixed(0)}°`}
+            formatValue={formatDegrees}
           />
         </div>
       </div>
+      {classicTop && <p className="hint">Zenithal setups keep the light directly above the model.</p>}
+      {!classicTop && <p className="hint dome-control__legend">
+        Drag on the dome, or focus it and use arrow keys. The edge is below the horizon.
+        {secondPoint && <> <span className="legend-dot legend-dot--second" aria-hidden="true" /> Second light.</>}
+      </p>}
       <div id={readoutId} className="visually-hidden" aria-live="polite" aria-atomic="true">
         {directionReadout}
       </div>
-      <div className="sun-dome__sliders sun-dome__sliders--advanced">
-        {lightingMode === "local" && <RangeControl
-          label="Source Distance"
-          value={light.distance}
-          min={1}
-          max={6}
-          step={0.05}
-          onChange={(value) => onChange({ distance: value })}
-          suffix=" × height"
-          disabled={disabled}
-          testId="light-distance-slider"
-          formatValue={(value) => `${value.toFixed(2)}×`}
-        />}
-        <RangeControl
-          label="Intensity"
-          value={light.intensity}
-          min={0}
-          max={10}
-          step={0.01}
-          onChange={(value) => onChange({ intensity: value })}
-          disabled={disabled}
-          testId="light-intensity-slider"
-          formatValue={(value) => value.toFixed(2)}
-        />
-        <RangeControl
-          label="Environment Strength"
-          value={light.environmentIntensity}
-          min={0}
-          max={3}
-          step={0.01}
-          onChange={(value) => onChange({ environmentIntensity: value })}
-          disabled={disabled}
-          testId="light-environment-slider"
-          formatValue={(value) => value.toFixed(2)}
-        />
-        <RangeControl
-          label="Shadow Softness"
-          value={light.shadowSoftness}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(value) => onChange({ shadowSoftness: value })}
-          disabled={disabled}
-          testId="light-shadow-softness-slider"
-          formatValue={(value) => value.toFixed(2)}
-        />
-        {lightingMode === "broad-zenithal" && <RangeControl label="Zenithal Spread" min={0} max={1} step={0.01} value={light.spread} onChange={spread => onChange({ spread })} disabled={disabled} />}
-        {lightingMode === "local" && <div className="refinement-only"><RangeControl label="Source Radius · Refined" min={0} max={1} step={0.01} value={light.sourceSize} onChange={sourceSize => onChange({ sourceSize })} disabled={disabled} formatValue={v => `${v.toFixed(2)}× height`} /></div>}
-        {lightingMode === "dual" && <>
-          <label className="control-hint"><input type="checkbox" checked={light.secondaryOpposite} onChange={event => onChange({ secondaryOpposite: event.target.checked })} disabled={disabled} /> Keep Second Light Opposite</label>
-          <p className="control-hint">Opposite around the model. Second elevation stays independent.</p>
-          <RangeControl label="Second Light Ratio" min={0} max={2} step={0.01} value={light.secondaryIntensity} onChange={secondaryIntensity => onChange({ secondaryIntensity })} disabled={disabled} />
-          <RangeControl label="Second Azimuth" min={0} max={360} step={1} value={light.secondaryAzimuthDeg} onChange={secondaryAzimuthDeg => onChange({ secondaryAzimuthDeg })} disabled={disabled || light.secondaryOpposite} />
-          <RangeControl label="Second Elevation" min={-78} max={90} step={1} value={light.secondaryElevationDeg} onChange={secondaryElevationDeg => onChange({ secondaryElevationDeg })} disabled={disabled} />
-        </>}
-        {lightingMode === "reflected" && <label className="control-hint refinement-only"><input type="checkbox" checked={light.reflector} onChange={event => onChange({ reflector: event.target.checked })} disabled={disabled} /> Rear reflector · Refined</label>}
-        <label className="floor-color"><span>Key Color</span><input aria-label="Key Color" type="color" value={light.keyColor} disabled={disabled} onChange={e => onChange({ keyColor: e.target.value })} /></label>
-        {lightingMode === "dual" && <label className="floor-color"><span>Second Light Color</span><input aria-label="Second Light Color" type="color" value={light.secondaryColor} disabled={disabled} onChange={e => onChange({ secondaryColor: e.target.value })} /></label>}
-        <label className="floor-color"><span>Environment Color</span><input aria-label="Environment Color" type="color" value={light.environmentColor} disabled={disabled} onChange={e => onChange({ environmentColor: e.target.value })} /></label>
-        <p className="control-hint">Shadow softness applies to both lights. Environment fill is approximate in Preview.</p>
-      </div>
-    </section>
+    </div>
   );
 }
