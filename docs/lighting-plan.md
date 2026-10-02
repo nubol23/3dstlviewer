@@ -238,3 +238,14 @@ phone viewport this removes the blur and shadow speckle of the previous mobile
 budget; the resting image matched the desktop budget pixel for pixel in Chrome
 emulation. Frame cost on a physical phone is not measured yet.
 
+
+## Soft-shadow noise on phones
+
+drei's PCSS rotates each pixel's Vogel sample disk by an angle from a
+fract(sin(...)) hash of the screen coordinate. Phone GPUs evaluate sin of those
+large arguments inaccurately, so neighboring pixels receive clumped angles and
+penumbrae speckle even at 16 samples. The viewer swaps only that angle for
+interleaved gradient noise as drei writes its shader chunk; the PCSS blocker
+search, filter, sample count and softness are unchanged, and desktop renders are
+visually identical. If drei changes the injected angle line, loading fails with
+an explicit error instead of silently keeping the old noise.

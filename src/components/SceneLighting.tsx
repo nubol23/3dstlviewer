@@ -2,13 +2,34 @@
 import { useEffect, useMemo } from "react";
 import { SoftShadows } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { Object3D, Vector3 } from "three";
+import { Object3D, ShaderChunk, Vector3 } from "three";
 import { GradientEquirectTexture } from "three-gpu-pathtracer/src/textures/GradientEquirectTexture.js";
 import { PhysicalSpotLight } from "three-gpu-pathtracer/src/objects/PhysicalSpotLight.js";
 import type { LightingMode, LightState, ModelFitState, FloorState } from "../types";
 import { RENDER_BUDGET, resolveStudyLight, sphericalToPosition } from "../lib/light";
 
 const DEFAULT_CENTER = new Vector3(0, 2, 0);
+
+// drei's PCSS rotates each pixel's sample disk by fract(sin(...)) of the screen
+// coordinate. Phone GPUs evaluate sin of such large arguments inaccurately, so the
+// rotations clump and soft shadow edges speckle. Interleaved gradient noise gives
+// the same per-pixel rotation from small multiplies and fract only. drei writes its
+// shader into ShaderChunk and compiles it straight away, so the swap happens as it
+// is written rather than in a later pass.
+const DREI_PCSS_ANGLE = "float angle = highPassRandRGB(gl_FragCoord.xy).r * PI2;";
+const STABLE_PCSS_ANGLE = "float angle = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * PI2;";
+let shadowChunk = ShaderChunk.shadowmap_pars_fragment;
+Object.defineProperty(ShaderChunk, "shadowmap_pars_fragment", {
+  configurable: true,
+  enumerable: true,
+  get: () => shadowChunk,
+  set: (chunk: string) => {
+    if (chunk.includes("float PCSS") && !chunk.includes(DREI_PCSS_ANGLE)) {
+      throw new Error("SoftShadows shader changed: PCSS rotation noise was not found");
+    }
+    shadowChunk = chunk.replace(DREI_PCSS_ANGLE, STABLE_PCSS_ANGLE);
+  },
+});
 
 type Props = { light: LightState; lightingMode: LightingMode; modelFit: ModelFitState | null; floor: FloorState };
 export function SceneLighting({ light, lightingMode, modelFit, floor }: Props) {
