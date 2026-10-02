@@ -72,7 +72,7 @@ async function expectDesktopWorkbenchLayout(page: Page): Promise<void> {
   expect(layout.viewport!.bottom).toBeLessThanOrEqual(layout.windowHeight + 1);
 }
 
-type TabName = "Light" | "Values" | "Scene" | "Presets";
+type TabName = "Light" | "Values" | "Model" | "Presets";
 
 async function openTab(page: Page, name: TabName): Promise<void> {
   const tab = page.getByRole("tab", { name, exact: true });
@@ -108,7 +108,7 @@ test.describe("STL viewer", () => {
     const loadedToast = page.getByText("Loaded z-up-mini.stl.");
     await expect(loadedToast).toBeVisible();
     await expect(page.getByRole("heading", { name: "Open an STL to study its values" })).toHaveCount(0);
-    await openTab(page, "Scene");
+    await openTab(page, "Model");
     await expect(page.getByRole("heading", { name: "z-up-mini.stl" })).toBeVisible();
     await expect(page.getByText("1. X -90°")).toBeVisible();
     await expect(loadedToast).toBeHidden({ timeout: 6000 });
@@ -173,7 +173,7 @@ test.describe("STL viewer", () => {
     await expectLoaded(page, "value-band-island.stl");
     await expect(page.getByText("Loaded value-band-island.stl.")).toBeVisible();
     await expect(page.getByText("4 tris").first()).toBeVisible();
-    await openTab(page, "Scene");
+    await openTab(page, "Model");
     await expect(page.getByText("1. X -90°")).toBeVisible();
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
@@ -200,7 +200,7 @@ test.describe("STL viewer", () => {
     const sheetBody = page.locator("#inspector-body");
     await expect(sheetBody).toBeHidden();
 
-    await page.getByRole("tab", { name: "Scene" }).click();
+    await page.getByRole("tab", { name: "Model" }).click();
     await expect(sheetBody).toBeVisible();
     await expect(inspector.getByText("1. X -90°")).toBeVisible();
     await inspector.getByTestId("rotate-y-positive").click();
@@ -230,7 +230,7 @@ test.describe("STL viewer", () => {
     expect(open.studyBar!.top).toBeGreaterThanOrEqual(open.viewport!.top);
     expect(open.horizontalOverflow).toBe(false);
 
-    await page.getByRole("tab", { name: "Scene" }).click();
+    await page.getByRole("tab", { name: "Model" }).click();
     await expect(sheetBody).toBeHidden();
     const collapsed = await measure();
     expect(collapsed.viewport!.height).toBeGreaterThan(open.viewport!.height + 150);
@@ -305,7 +305,7 @@ test.describe("STL viewer", () => {
     await expectLoaded(page, "degenerate-mini.stl");
     await expect(page.getByText("Loaded degenerate-mini.stl.")).toBeVisible();
     await expect(page.getByText("2 tris").first()).toBeVisible();
-    await openTab(page, "Scene");
+    await openTab(page, "Model");
     await expect(page.getByText("1. X -90°")).toBeVisible();
   });
 });
@@ -341,7 +341,7 @@ test("updates independent lights and screen-space values through the study contr
   await expect(page.getByRole("slider", { name: "Boundary 1", exact: true })).toBeVisible();
   await page.getByRole("slider", { name: "Boundary 1", exact: true }).fill("0.25");
   await openTab(page, "Presets");
-  await page.getByRole("button", { name: "Save current look", exact: true }).click();
+  await page.getByRole("button", { name: "Save preset", exact: true }).click();
   await expect(page.getByRole("button", { name: "Preset 1 Local Studio · 3 values", exact: true })).toBeVisible();
   await page.reload();
   await openTab(page, "Values");
@@ -416,7 +416,7 @@ test("links an opposing fill, unlinks without a jump, and restores settings and 
   const ratio = page.getByRole("slider", { name: "Second Light Ratio", exact: true });
   const savePreset = async () => {
     await openTab(page, "Presets");
-    await page.getByRole("button", { name: "Save current look", exact: true }).click();
+    await page.getByRole("button", { name: "Save preset", exact: true }).click();
     await openTab(page, "Light");
   };
   await expect(opposite).toBeChecked();
@@ -480,76 +480,100 @@ test("compares colored lighting with neutral values and persists the colors", as
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
   await expectLoaded(page, "z-up-mini.stl");
   await selectSetup(page, "Double Directional");
-  const warmKey = page.getByRole("switch", { name: "Warm Key Light", exact: true });
+  const keyChoices = page.getByRole("radiogroup", { name: "Key light color" });
+  const fillChoices = page.getByRole("radiogroup", { name: "Fill colors" });
+  const white = keyChoices.getByRole("radio", { name: /White/ });
+  const warm = keyChoices.getByRole("radio", { name: /Warm/ });
+  const neutral = fillChoices.getByRole("radio", { name: /Neutral/ });
+  const cool = fillChoices.getByRole("radio", { name: /Cool blue/ });
   const keyColor = page.getByLabel("Key Color", { exact: true });
   const secondColor = page.getByLabel("Second Light Color", { exact: true });
   const environmentColor = page.getByLabel("Environment Color", { exact: true });
+  const floorColor = page.getByLabel("Floor Color", { exact: true });
   const grayscaleSwitch = page.getByRole("switch", { name: "Neutral Grayscale", exact: true });
-  await expect(warmKey).not.toBeChecked();
-  await expect(keyColor).toHaveValue("#ffffff");
+  await expect(white).toBeChecked();
+  await expect(neutral).toBeChecked();
   await keyColor.fill("#ee7040");
+  await expect(white).not.toBeChecked();
+  await expect(warm).not.toBeChecked();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await secondColor.fill("#507add");
   await environmentColor.fill("#d0dfef");
+  await expect(neutral).not.toBeChecked();
   const grayscale = await page.locator("canvas").screenshot();
   await openTab(page, "Values");
   await grayscaleSwitch.uncheck();
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(grayscale)).toBe(false);
 
-  // Applying a fill palette preserves the chosen key and the dome direction.
+  // A fill palette preserves the chosen key and the dome direction.
   await openTab(page, "Light");
   await page.getByRole("button", { name: "Light direction pad", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("slider", { name: "Azimuth", exact: true })).toHaveValue("320");
-  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
+  await cool.click();
+  await expect(cool).toBeChecked();
   await expect(keyColor).toHaveValue("#ee7040");
   await expect(page.getByRole("slider", { name: "Azimuth", exact: true })).toHaveValue("320");
   await expect(secondColor).toHaveValue("#a8c7ef");
   await expect(environmentColor).toHaveValue("#b6c9e3");
-  await openTab(page, "Scene");
-  await expect(page.getByLabel("Floor Color", { exact: true })).toHaveValue("#78899f");
+  await expect(floorColor).toHaveValue("#78899f");
   const coolFill = await page.locator("canvas").screenshot();
-  await openTab(page, "Light");
-  await page.getByRole("button", { name: "Monochrome", exact: true }).click();
-  await expect(secondColor).toHaveValue("#a8c7ef");
   await openTab(page, "Values");
-  await expect(grayscaleSwitch).toBeChecked();
+  await grayscaleSwitch.check();
   await expect.poll(async () => (await page.locator("canvas").screenshot()).equals(coolFill)).toBe(false);
   await openTab(page, "Light");
-  await page.getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
+  await expect(page.getByText(/Neutral Grayscale is on/)).toBeVisible();
   await page.reload();
   await expect(keyColor).toHaveValue("#ee7040");
-  await expect(secondColor).toHaveValue("#a8c7ef");
+  await expect(cool).toBeChecked();
+  await page.getByRole("button", { name: "Show colors", exact: true }).click();
   await openTab(page, "Values");
   await expect(grayscaleSwitch).not.toBeChecked();
 
   await openTab(page, "Light");
-  await page.getByRole("button", { name: "Monochrome", exact: true }).click();
-  await warmKey.check();
+  await warm.click();
   await expect(keyColor).toHaveValue("#ffe2b3");
-  await expect(secondColor).toHaveValue("#a8c7ef");
-  await expect(environmentColor).toHaveValue("#b6c9e3");
-  await openTab(page, "Scene");
-  await expect(page.getByLabel("Floor Color", { exact: true })).toHaveValue("#78899f");
-  await openTab(page, "Values");
-  await expect(grayscaleSwitch).not.toBeChecked();
+  await expect(cool).toBeChecked();
   await page.reload();
-  await expect(warmKey).toBeChecked();
+  await expect(warm).toBeChecked();
+
+  // Choosing a setup starts from white light and neutral fill, floor included.
+  await selectSetup(page, "Reflected Fill");
+  await expect(white).toBeChecked();
+  await expect(neutral).toBeChecked();
+  await expect(keyColor).toHaveValue("#ffffff");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "Light", exact: true }).click();
-  const mobile = page.locator(".inspector");
   await expect(page.locator("#inspector-body")).toBeVisible();
-  await mobile.getByRole("switch", { name: "Warm Key Light", exact: true }).uncheck();
-  await expect(mobile.getByLabel("Key Color", { exact: true })).toHaveValue("#ffffff");
-  await expect(mobile.getByLabel("Second Light Color", { exact: true })).toHaveValue("#a8c7ef");
-  await selectSetup(page, "Reflected Fill");
-  await mobile.getByRole("button", { name: "Monochrome", exact: true }).click();
-  await mobile.getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
-  await expect(mobile.getByLabel("Environment Color", { exact: true })).toHaveValue("#b6c9e3");
-  await mobile.getByRole("switch", { name: "Warm Key Light", exact: true }).check();
-  await expect(mobile.getByLabel("Key Color", { exact: true })).toHaveValue("#ffe2b3");
+  await warm.click();
+  await cool.click();
+  await expect(keyColor).toHaveValue("#ffe2b3");
+  await selectSetup(page, "Directional");
+  await expect(white).toBeChecked();
+  await expect(neutral).toBeChecked();
   await page.getByRole("tab", { name: "Values", exact: true }).click();
-  await expect(mobile.getByRole("switch", { name: "Neutral Grayscale", exact: true })).not.toBeChecked();
+  await expect(grayscaleSwitch).not.toBeChecked();
+});
+
+test("renames, deletes and restores presets", async ({ page }) => {
+  await page.goto("/");
+  await openTab(page, "Presets");
+  const save = page.getByRole("button", { name: "Save preset", exact: true });
+  await save.click();
+  await save.click();
+  await expect(page.getByText("2 of 8 used.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Rename Preset 2", exact: true }).click();
+  await page.getByRole("textbox", { name: "Preset name" }).fill("Rim test");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Rim test Directional · smooth", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Delete Preset 1", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Preset 1 / })).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Preset 1 Directional · smooth", exact: true })).toBeVisible();
+  await page.reload();
+  await openTab(page, "Presets");
+  await expect(page.locator(".preset__name")).toHaveText(["Rim test", "Preset 1"]);
 });
 
 test("increases value separation without flattening the illuminated shadows", async ({ page }) => {

@@ -1,13 +1,15 @@
 import type { Dispatch, ReactNode } from "react";
+import { useId, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import { ArrowDownToDot, ArrowLeftRight, Blend, Cloud, LampDesk, Lock, LockOpen, RotateCcw, Sun } from "lucide-react";
 import type { AppAction, AppState, LightingMode, LightState } from "../../types";
 import { LIGHT_SETUPS } from "../../state";
+import { FILL_PALETTES, KEY_COLORS, fillPalettePreset, keyColorPreset } from "../../lib/palette";
+import type { FillPalette, KeyColorPreset } from "../../lib/palette";
 import { ColorControl, ControlSection, RangeControl, SwitchControl } from "../Controls";
 import { IconButton } from "../IconButton";
 import { SunDomeControl } from "../SunDomeControl";
 
-const WARM_KEY_COLOR = "#ffe2b3";
 const ICON_SIZE = 18;
 
 const SETUP_ICONS: Record<LightingMode, ReactNode> = {
@@ -20,6 +22,29 @@ const SETUP_ICONS: Record<LightingMode, ReactNode> = {
 };
 
 const ratio = (value: number) => value.toFixed(2);
+
+const KEY_OPTIONS: Array<{ value: KeyColorPreset; label: string }> = [
+  { value: "white", label: "White" },
+  { value: "warm", label: "Warm" },
+];
+
+const FILL_OPTIONS: Array<{ value: FillPalette; label: string }> = [
+  { value: "neutral", label: "Neutral" },
+  { value: "cool", label: "Cool blue" },
+];
+
+function Swatch({ colors }: { colors: readonly string[] }) {
+  return (
+    <span className="swatch" aria-hidden="true">
+      {colors.map((color, index) => <i key={`${color}-${index}`} style={{ backgroundColor: color }} />)}
+    </span>
+  );
+}
+
+function fillSwatch(palette: FillPalette): string[] {
+  const colors = FILL_PALETTES[palette];
+  return [colors.secondaryColor, colors.environmentColor, colors.floorColor];
+}
 
 type LightPanelProps = {
   state: AppState;
@@ -37,16 +62,11 @@ export function LightPanel({ state, dispatch }: LightPanelProps) {
   const setLight = (patch: Partial<LightState>) => dispatch({ type: "set-light", patch });
   const applySetup = (setupId: string) => dispatch({ type: "apply-light-setup", setupId });
 
-  const applyCoolFill = () => {
-    setLight({ secondaryColor: "#a8c7ef", environmentColor: "#b6c9e3" });
-    dispatch({ type: "set-floor", patch: { color: "#78899f" } });
-    dispatch({ type: "set-value-ramp", patch: { grayscale: false } });
-  };
-
-  const setWarmKey = (warm: boolean) => {
-    setLight({ keyColor: warm ? WARM_KEY_COLOR : "#ffffff" });
-    if (warm) dispatch({ type: "set-value-ramp", patch: { grayscale: false } });
-  };
+  const keyPreset = keyColorPreset(light.keyColor);
+  const fillPreset = fillPalettePreset(light, state.floor);
+  const [fillEditorOpen, setFillEditorOpen] = useState(fillPreset === null);
+  const fillEditorId = useId();
+  const colorsHiddenByGrayscale = state.valueRamp.grayscale && (keyPreset !== "white" || fillPreset !== "neutral");
 
   return (
     <div className="panel-stack">
@@ -141,13 +161,6 @@ export function LightPanel({ state, dispatch }: LightPanelProps) {
             disabled={locked}
           />
         )}
-        <SwitchControl
-          label="Warm Key Light"
-          checked={light.keyColor.toLowerCase() === WARM_KEY_COLOR}
-          onChange={setWarmKey}
-          disabled={locked}
-        />
-        <ColorControl label="Key Color" value={light.keyColor} onChange={(keyColor) => setLight({ keyColor })} disabled={locked} />
       </ControlSection>
 
       {lightingMode === "dual" && (
@@ -189,16 +202,106 @@ export function LightPanel({ state, dispatch }: LightPanelProps) {
             disabled={locked}
             formatValue={(value) => `${value.toFixed(0)}°`}
           />
-          <ColorControl
-            label="Second Light Color"
-            value={light.secondaryColor}
-            onChange={(secondaryColor) => setLight({ secondaryColor })}
-            disabled={locked}
-          />
         </ControlSection>
       )}
 
-      <ControlSection title="Fill and environment">
+      <ControlSection title="Colors">
+        <div className="palette-row">
+          <span className="palette-row__label">Key light</span>
+          <div className="chips">
+            <RadioGroup.Root
+              className="chips__group"
+              aria-label="Key light color"
+              value={keyPreset ?? ""}
+              disabled={locked}
+              onValueChange={(preset) => dispatch({ type: "set-key-color-preset", preset: preset as KeyColorPreset })}
+            >
+              {KEY_OPTIONS.map((option) => (
+                <RadioGroup.Item key={option.value} className="chip" value={option.value}>
+                  <Swatch colors={[KEY_COLORS[option.value]]} />
+                  {option.label}
+                </RadioGroup.Item>
+              ))}
+            </RadioGroup.Root>
+            <label className="chip chip--picker" data-selected={keyPreset === null || undefined} data-disabled={locked || undefined}>
+              <span className="chip__wheel" aria-hidden="true" />
+              <input
+                type="color"
+                aria-label="Key Color"
+                value={light.keyColor}
+                disabled={locked}
+                onChange={(event) => setLight({ keyColor: event.target.value })}
+              />
+              Custom
+            </label>
+          </div>
+        </div>
+        <div className="palette-row">
+          <span className="palette-row__label">Fill, sky and floor</span>
+          <div className="chips">
+            <RadioGroup.Root
+              className="chips__group"
+              aria-label="Fill colors"
+              value={fillPreset ?? ""}
+              disabled={locked}
+              onValueChange={(palette) => dispatch({ type: "set-fill-palette", palette: palette as FillPalette })}
+            >
+              {FILL_OPTIONS.map((option) => (
+                <RadioGroup.Item key={option.value} className="chip" value={option.value}>
+                  <Swatch colors={fillSwatch(option.value)} />
+                  {option.label}
+                </RadioGroup.Item>
+              ))}
+            </RadioGroup.Root>
+            <button
+              type="button"
+              className="chip"
+              data-selected={fillPreset === null || undefined}
+              aria-expanded={fillEditorOpen}
+              aria-controls={fillEditorId}
+              onClick={() => setFillEditorOpen((open) => !open)}
+            >
+              Custom
+            </button>
+          </div>
+          {fillEditorOpen && (
+            <div id={fillEditorId} className="palette-row__editor">
+              {lightingMode === "dual" && (
+                <ColorControl
+                  label="Second Light Color"
+                  value={light.secondaryColor}
+                  onChange={(secondaryColor) => setLight({ secondaryColor })}
+                  disabled={locked}
+                />
+              )}
+              <ColorControl
+                label="Environment Color"
+                value={light.environmentColor}
+                onChange={(environmentColor) => setLight({ environmentColor })}
+                disabled={locked}
+              />
+              <ColorControl
+                label="Floor Color"
+                value={state.floor.color}
+                onChange={(color) => dispatch({ type: "set-floor", patch: { color } })}
+                disabled={locked}
+              />
+            </div>
+          )}
+        </div>
+        {colorsHiddenByGrayscale ? (
+          <p className="notice notice--action">
+            <span>Neutral Grayscale is on, so these colors show as gray values.</span>
+            <button type="button" className="btn btn--ghost" onClick={() => dispatch({ type: "set-value-ramp", patch: { grayscale: false } })}>
+              Show colors
+            </button>
+          </p>
+        ) : (
+          <p className="hint">Warm and cool choices turn on color in the study. Choosing a setup resets colors to white and neutral.</p>
+        )}
+      </ControlSection>
+
+      <ControlSection title="Environment">
         <RangeControl
           label="Environment Strength"
           value={light.environmentIntensity}
@@ -210,11 +313,15 @@ export function LightPanel({ state, dispatch }: LightPanelProps) {
           testId="light-environment-slider"
           formatValue={ratio}
         />
-        <ColorControl
-          label="Environment Color"
-          value={light.environmentColor}
-          onChange={(environmentColor) => setLight({ environmentColor })}
+        <RangeControl
+          label="Ground Reflectance"
+          min={0}
+          max={1}
+          step={0.01}
+          value={state.floor.reflectance}
+          onChange={(reflectance) => dispatch({ type: "set-floor", patch: { reflectance } })}
           disabled={locked}
+          formatValue={ratio}
         />
         {lightingMode === "reflected" && (
           <SwitchControl
@@ -225,14 +332,7 @@ export function LightPanel({ state, dispatch }: LightPanelProps) {
             disabled={locked}
           />
         )}
-        {(lightingMode === "dual" || lightingMode === "reflected") && <>
-          <div className="button-pair">
-            <button type="button" className="btn btn--solid" disabled={locked} onClick={applyCoolFill}>Cool Blue Fill</button>
-            <button type="button" className="btn btn--solid" onClick={() => dispatch({ type: "set-value-ramp", patch: { grayscale: true } })}>Monochrome</button>
-          </div>
-          <p className="hint">Cool Blue Fill tints the second light, sky and ground blue-gray and keeps your key color.</p>
-        </>}
-        <p className="hint">Environment fill is approximate in the preview.</p>
+        <p className="hint">The floor bounces light onto the model and does not receive its shadow. Environment fill is approximate in the preview.</p>
       </ControlSection>
 
       <ControlSection title="Shadows">

@@ -1,4 +1,5 @@
 import type { Box3, BufferGeometry, Vector3 } from "three";
+import type { FillPalette, KeyColorPreset } from "./lib/palette";
 
 export type ValueRenderStyle = "smooth" | "stepped";
 
@@ -6,7 +7,7 @@ export type ValueStepCount = 3 | 4 | 5 | 6 | 7 | 8;
 
 export type LightingMode = "directional" | "zenithal" | "broad-zenithal" | "local" | "dual" | "reflected";
 
-export type ActiveTab = "light" | "values" | "scene" | "presets";
+export type ActiveTab = "light" | "values" | "model" | "presets";
 
 export type OrientationTurn = 0 | 1 | 2 | 3;
 
@@ -124,12 +125,13 @@ export type AppState = {
 
 export type AppAction =
   | { type: "set-light"; patch: Partial<LightState> }
-  | { type: "reset-light" }
   | { type: "toggle-lock" }
+  | { type: "set-key-color-preset"; preset: KeyColorPreset }
+  | { type: "set-fill-palette"; palette: FillPalette }
   | { type: "set-render-style"; renderStyle: ValueRenderStyle }
   | { type: "set-value-step-count"; valueStepCount: ValueStepCount }
   | { type: "set-value-ramp"; patch: Partial<ValueRampState> }
-  | { type: "set-lighting-mode"; lightingMode: LightingMode }
+  | { type: "reset-value-ramp" }
   | { type: "apply-light-setup"; setupId: string }
   | { type: "set-floor"; patch: Partial<FloorState> }
   | { type: "set-active-tab"; activeTab: ActiveTab }
@@ -138,4 +140,7 @@ export type AppAction =
   | { type: "replace-model"; model: LoadedModel }
   | { type: "load-error"; requestId: number; message: string }
   | { type: "save-preset" }
-  | { type: "load-preset"; presetId: string };
+  | { type: "load-preset"; presetId: string }
+  | { type: "rename-preset"; presetId: string; name: string }
+  | { type: "delete-preset"; presetId: string }
+  | { type: "restore-preset"; preset: LightPreset; index: number };

@@ -1,6 +1,8 @@
 import type { Dispatch } from "react";
+import { RotateCcw } from "lucide-react";
 import type { AppAction, AppState, ValueRampState } from "../../types";
 import { ControlSection, RangeControl, SwitchControl } from "../Controls";
+import { IconButton } from "../IconButton";
 
 type ValuesPanelProps = {
   state: AppState;
@@ -16,7 +18,10 @@ export function ValuesPanel({ state, dispatch }: ValuesPanelProps) {
 
   return (
     <div className="panel-stack" data-testid="value-ramp-control">
-      <ControlSection title="Value range">
+      <ControlSection
+        title="Value range"
+        actions={<IconButton icon={<RotateCcw size={16} />} label="Reset all value settings" onClick={() => dispatch({ type: "reset-value-ramp" })} />}
+      >
         <RangeControl
           label="Shadow Value"
           min={5}

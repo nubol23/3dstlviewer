@@ -1,7 +1,6 @@
-import type { Dispatch } from "react";
-import { FolderOpen, RotateCcw, RotateCw } from "lucide-react";
-import type { AppAction, AppState, OrientationAxis, OrientationTurnOperation } from "../../types";
-import { ColorControl, ControlSection, RangeControl } from "../Controls";
+import { RotateCcw, RotateCw } from "lucide-react";
+import type { AppState, OrientationAxis, OrientationTurnOperation } from "../../types";
+import { ControlSection } from "../Controls";
 
 const ORIENTATION_AXES: OrientationAxis[] = ["x", "y", "z"];
 
@@ -16,18 +15,14 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type ScenePanelProps = {
-  state: AppState;
-  dispatch: Dispatch<AppAction>;
-  onOpenFile: () => void;
+type ModelPanelProps = {
+  model: AppState["model"];
   onRotateModel: (axis: OrientationAxis, quarterTurns: number) => void;
   onResetModelOrientation: () => void;
 };
 
-export function ScenePanel({ state, dispatch, onOpenFile, onRotateModel, onResetModelOrientation }: ScenePanelProps) {
-  const { model, floor } = state;
+export function ModelPanel({ model, onRotateModel, onResetModelOrientation }: ModelPanelProps) {
   const operations = model?.orientation.operations ?? [];
-  const setFloor = (patch: Partial<AppState["floor"]>) => dispatch({ type: "set-floor", patch });
 
   return (
     <div className="panel-stack">
@@ -42,13 +37,9 @@ export function ScenePanel({ state, dispatch, onOpenFile, onRotateModel, onReset
           </div>
         ) : (
           <div className="model-card model-card--empty">
-            <p>No model open. The sample form shows the current light.</p>
+            <p>No model open. Use Open STL or drop a file on the viewer. Until then, the sample form shows the current light.</p>
           </div>
         )}
-        <button type="button" className="btn btn--solid btn--block" onClick={onOpenFile}>
-          <FolderOpen size={16} aria-hidden="true" />
-          <span>{model ? "Open another STL" : "Open STL"}</span>
-        </button>
       </ControlSection>
 
       <ControlSection title="Orientation">
@@ -105,18 +96,6 @@ export function ScenePanel({ state, dispatch, onOpenFile, onRotateModel, onReset
         </div>
       </ControlSection>
 
-      <ControlSection title="Floor">
-        <RangeControl
-          label="Ground Reflectance"
-          min={0}
-          max={1}
-          step={0.01}
-          value={floor.reflectance}
-          onChange={(reflectance) => setFloor({ reflectance })}
-        />
-        <ColorControl label="Floor Color" value={floor.color} onChange={(color) => setFloor({ color })} />
-        <p className="hint">The floor bounces light onto the model. It does not receive the model's shadow.</p>
-      </ControlSection>
     </div>
   );
 }

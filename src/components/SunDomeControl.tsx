@@ -70,10 +70,11 @@ export function domePointToLightDirection(
   };
 }
 
-function markerStyle(point: { x: number; y: number }): CSSProperties {
+function markerStyle(point: { x: number; y: number }, color: string): CSSProperties {
   return {
     left: `calc(50% + ${point.x} * (50% - ${DOME_INSET_PX}px))`,
     top: `calc(50% + ${point.y} * (50% - ${DOME_INSET_PX}px))`,
+    backgroundColor: color,
   };
 }
 
@@ -199,8 +200,8 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
           <span className="dome__compass dome__compass--back" aria-hidden="true">Back</span>
           <span className="dome__compass dome__compass--left" aria-hidden="true">L</span>
           <span className="dome__compass dome__compass--right" aria-hidden="true">R</span>
-          {secondPoint && <span className="dome__marker dome__marker--second" style={markerStyle(secondPoint)} aria-hidden="true" />}
-          <span className="dome__marker" style={markerStyle(keyPoint)} aria-hidden="true" />
+          {secondPoint && <span className="dome__marker dome__marker--second" style={markerStyle(secondPoint, light.secondaryColor)} aria-hidden="true">2</span>}
+          <span className="dome__marker" style={markerStyle(keyPoint, light.keyColor)} aria-hidden="true">{secondPoint ? "1" : null}</span>
         </button>
         <div className="dome-control__sliders">
           <RangeControl
@@ -228,9 +229,9 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
         </div>
       </div>
       {classicTop && <p className="hint">Zenithal setups keep the light directly above the model.</p>}
-      {!classicTop && <p className="hint dome-control__legend">
+      {!classicTop && <p className="hint">
         Drag on the dome, or focus it and use arrow keys. The edge is below the horizon.
-        {secondPoint && <> <span className="legend-dot legend-dot--second" aria-hidden="true" /> Second light.</>}
+        {secondPoint && " 1 is the key light, 2 the second light."}
       </p>}
       <div id={readoutId} className="visually-hidden" aria-live="polite" aria-atomic="true">
         {directionReadout}

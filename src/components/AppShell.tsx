@@ -8,7 +8,7 @@ import { IconButton } from "./IconButton";
 import { StudyBar } from "./StudyBar";
 import { LightPanel } from "./panels/LightPanel";
 import { PresetsPanel } from "./panels/PresetsPanel";
-import { ScenePanel } from "./panels/ScenePanel";
+import { ModelPanel } from "./panels/ModelPanel";
 import { ValuesPanel } from "./panels/ValuesPanel";
 
 export const SHEET_LAYOUT_QUERY = "(max-width: 760px), (max-width: 1024px) and (orientation: portrait)";
@@ -18,7 +18,7 @@ type SheetState = "closed" | "half" | "full";
 const TABS: Array<{ value: ActiveTab; label: string; icon: ReactNode }> = [
   { value: "light", label: "Light", icon: <Sun size={18} /> },
   { value: "values", label: "Values", icon: <Contrast size={18} /> },
-  { value: "scene", label: "Scene", icon: <Box size={18} /> },
+  { value: "model", label: "Model", icon: <Box size={18} /> },
   { value: "presets", label: "Presets", icon: <Bookmark size={18} /> },
 ];
 
@@ -259,7 +259,7 @@ export function AppShell({
             <p>Drop a file anywhere, or choose one. It is read on this device and never uploaded.</p>
             <button type="button" className="btn btn--primary" onClick={openFilePicker}>
               <FolderOpen size={16} aria-hidden="true" />
-              <span>Choose STL file</span>
+              <span>Open STL</span>
             </button>
           </div>
         )}
@@ -318,11 +318,9 @@ export function AppShell({
           <Tabs.Content value="values" className="inspector__panel">
             <ValuesPanel state={state} dispatch={dispatch} />
           </Tabs.Content>
-          <Tabs.Content value="scene" className="inspector__panel">
-            <ScenePanel
-              state={state}
-              dispatch={dispatch}
-              onOpenFile={openFilePicker}
+          <Tabs.Content value="model" className="inspector__panel">
+            <ModelPanel
+              model={state.model}
               onRotateModel={onRotateModel}
               onResetModelOrientation={onResetModelOrientation}
             />

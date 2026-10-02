@@ -204,3 +204,18 @@ changing the secondary/environment/floor colors. Use the existing key-color
 field for selection, persistence and both renderers, retaining custom color
 editing and manual grayscale comparison. Default setups remain white. This
 shortcut adds no stored field or schema reset.
+
+## Control revamp
+
+The control layer was redesigned without changing the rendering contract above.
+The Warm Key Light checkbox and the Cool Blue Fill and Monochrome buttons are
+replaced by one Colors section shown in every setup. The key light offers White,
+Warm (#FFE2B3) or a custom color. The fill offers Neutral (white second light and
+sky, #888888 floor), Cool blue (the same muted blue palette as before) or custom
+second-light, environment and floor colors. Choosing Warm or Cool blue turns off
+Neutral Grayscale, as before; Neutral Grayscale remains the only grayscale
+control. Choosing a lighting setup now loads its default light and returns every
+color, floor color included, to white and neutral. Floor reflectance is kept.
+Presets can be renamed and deleted (with undo), saving stops at eight instead of
+dropping the oldest, and presets can be saved while the light is locked. Light
+colors, angles, intensities and the stored schema are unchanged.

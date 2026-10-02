@@ -15,6 +15,7 @@ import type {
 import { assertValueRenderStyle, assertValueStepCount } from "./lib/valueMode";
 import { assertValueRampState, DEFAULT_VALUE_RAMP, defaultThresholds } from "./lib/valueRamp";
 import { createUuid } from "./lib/uuid";
+import { FILL_PALETTES, KEY_COLORS } from "./lib/palette";
 
 export const STORAGE_KEY = "stl-value-viewer:v1";
 
@@ -23,12 +24,16 @@ export const DEFAULT_LIGHT: LightState = {
   environmentIntensity: 0.25, spread: 0.5, shadowSoftness: 0.35,
   secondaryIntensity: 0.3, secondaryOpposite: false, secondaryAzimuthDeg: 135, secondaryElevationDeg: 35,
   sourceSize: 0.15, reflector: false, locked: false,
-  keyColor: "#ffffff", secondaryColor: "#ffffff", environmentColor: "#ffffff",
+  keyColor: KEY_COLORS.white,
+  secondaryColor: FILL_PALETTES.neutral.secondaryColor,
+  environmentColor: FILL_PALETTES.neutral.environmentColor,
 };
 export const DEFAULT_RENDER_STYLE: ValueRenderStyle = "smooth";
 export const DEFAULT_VALUE_STEP_COUNT: ValueStepCount = 5;
 export const DEFAULT_LIGHTING_MODE: LightingMode = "directional";
-export const DEFAULT_FLOOR: FloorState = { color: "#888888", reflectance: 0.5 };
+export const DEFAULT_FLOOR: FloorState = { color: FILL_PALETTES.neutral.floorColor, reflectance: 0.5 };
+export const MAX_PRESETS = 8;
+const MAX_PRESET_NAME_LENGTH = 40;
 export type LightSetup = {
   id: string; name: string; description: string;
   light: LightState; lightingMode: LightingMode;
@@ -72,17 +77,33 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ? { ...light, secondaryAzimuthDeg: (light.azimuthDeg + 180) % 360 }
         : light };
     }
-    case "reset-light":
+    case "toggle-lock":
+      return { ...state, light: { ...state.light, locked: !state.light.locked } };
+    case "set-key-color-preset": {
       if (state.light.locked) {
         return state;
       }
+      const keyColor = KEY_COLORS[action.preset];
+      if (!keyColor) throw new Error(`Unsupported key color preset: ${String(action.preset)}`);
       return {
         ...state,
-        light: { ...DEFAULT_LIGHT, locked: state.light.locked },
-        lightingMode: DEFAULT_LIGHTING_MODE,
+        light: { ...state.light, keyColor },
+        valueRamp: action.preset === "white" ? state.valueRamp : { ...state.valueRamp, grayscale: false },
       };
-    case "toggle-lock":
-      return { ...state, light: { ...state.light, locked: !state.light.locked } };
+    }
+    case "set-fill-palette": {
+      if (state.light.locked) {
+        return state;
+      }
+      const palette = FILL_PALETTES[action.palette];
+      if (!palette) throw new Error(`Unsupported fill palette: ${String(action.palette)}`);
+      return {
+        ...state,
+        light: { ...state.light, secondaryColor: palette.secondaryColor, environmentColor: palette.environmentColor },
+        floor: { ...state.floor, color: palette.floorColor },
+        valueRamp: action.palette === "neutral" ? state.valueRamp : { ...state.valueRamp, grayscale: false },
+      };
+    }
     case "set-render-style":
       assertValueRenderStyle(action.renderStyle);
       return { ...state, renderStyle: action.renderStyle };
@@ -94,11 +115,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (valueRamp.thresholds.length !== state.valueStepCount - 1) throw new Error("Band threshold count must match the value count");
       return { ...state, valueRamp };
     }
-    case "set-lighting-mode":
-      if (state.light.locked) {
-        return state;
-      }
-      return { ...state, lightingMode: assertLightingMode(action.lightingMode) };
+    case "reset-value-ramp":
+      return { ...state, valueRamp: { ...DEFAULT_VALUE_RAMP, thresholds: defaultThresholds(state.valueStepCount) } };
     case "apply-light-setup": {
       if (state.light.locked) {
         return state;
@@ -110,6 +128,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         light: assertLightState({ ...setup.light, locked: false }),
+        floor: { ...state.floor, color: DEFAULT_FLOOR.color },
         lightingMode: setup.lightingMode,
       };
     }
@@ -139,9 +158,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       return { ...state, isLoading: false };
     case "save-preset": {
+      if (state.presets.length >= MAX_PRESETS) {
+        throw new Error(`Cannot save more than ${MAX_PRESETS} presets`);
+      }
       const nextPreset: LightPreset = {
         id: `preset-${createUuid()}`,
-        name: `Preset ${state.presets.length + 1}`,
+        name: nextPresetName(state.presets),
         floor: { ...state.floor },
         light: { ...state.light, locked: false },
         renderStyle: state.renderStyle,
@@ -149,7 +171,24 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         valueRamp: state.valueRamp,
         lightingMode: state.lightingMode,
       };
-      return { ...state, presets: [nextPreset, ...state.presets].slice(0, 8) };
+      return { ...state, presets: [nextPreset, ...state.presets] };
+    }
+    case "rename-preset": {
+      findPreset(state.presets, action.presetId);
+      const name = parseSchema(presetNameSchema, action.name.trim(), "Invalid preset name");
+      return { ...state, presets: state.presets.map((preset) => (preset.id === action.presetId ? { ...preset, name } : preset)) };
+    }
+    case "delete-preset":
+      findPreset(state.presets, action.presetId);
+      return { ...state, presets: state.presets.filter((preset) => preset.id !== action.presetId) };
+    case "restore-preset": {
+      if (state.presets.length >= MAX_PRESETS) {
+        throw new Error(`Cannot restore more than ${MAX_PRESETS} presets`);
+      }
+      const preset = assertPreset(action.preset);
+      const presets = [...state.presets];
+      presets.splice(Math.min(Math.max(action.index, 0), presets.length), 0, preset);
+      return { ...state, presets };
     }
     case "load-preset": {
       const preset = state.presets.find((item) => item.id === action.presetId);
@@ -169,6 +208,21 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     default:
       return state;
   }
+}
+
+function nextPresetName(presets: LightPreset[]): string {
+  const names = new Set(presets.map((preset) => preset.name));
+  let index = presets.length + 1;
+  while (names.has(`Preset ${index}`)) index += 1;
+  return `Preset ${index}`;
+}
+
+function findPreset(presets: LightPreset[], presetId: string): LightPreset {
+  const preset = presets.find((candidate) => candidate.id === presetId);
+  if (!preset) {
+    throw new Error(`Unknown preset: ${presetId}`);
+  }
+  return preset;
 }
 
 type PersistableAppState = Pick<
@@ -240,6 +294,12 @@ function stringSchema(label: string): z.ZodType<string> {
     });
 }
 
+const presetNameSchema = stringSchema("preset name").superRefine((name, context) => {
+  if (name.length > MAX_PRESET_NAME_LENGTH) {
+    context.addIssue({ code: "custom", message: `Invalid preset name: longer than ${MAX_PRESET_NAME_LENGTH} characters` });
+  }
+});
+
 const FLOOR_COLOR_SCHEMA = z
   .string({ error: (issue) => `Invalid floor color: ${String(issue.input)}` })
   .superRefine((color, context) => {
@@ -252,7 +312,7 @@ const LIGHTING_MODE_SCHEMA = z.enum(["directional", "zenithal", "broad-zenithal"
   error: (issue) => `Unsupported lighting mode: ${String(issue.input)}`,
 });
 
-const ACTIVE_TAB_SCHEMA = z.enum(["light", "values", "scene", "presets"], {
+const ACTIVE_TAB_SCHEMA = z.enum(["light", "values", "model", "presets"], {
   error: (issue) => `Unsupported active tab: ${String(issue.input)}`,
 });
 
@@ -345,7 +405,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
   const presets = parseSchema(
     z.array(z.unknown(), {
       error: "Invalid persisted viewer state: presets must be an array",
-    }),
+    }).max(MAX_PRESETS, `Invalid persisted viewer state: more than ${MAX_PRESETS} presets`),
     persisted.presets,
     "Invalid persisted viewer state presets",
   );

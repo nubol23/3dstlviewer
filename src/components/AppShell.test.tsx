@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitialState } from "../state";
+import { appReducer, createInitialState } from "../state";
 import { defaultThresholds } from "../lib/valueRamp";
 import type { AppAction, AppState } from "../types";
 import { AppShell } from "./AppShell";
@@ -56,7 +56,7 @@ describe("AppShell", () => {
   it("opens a chosen STL through a single file input", () => {
     const { onFileSelected } = renderShell();
 
-    expect(screen.getByRole("button", { name: "Open STL" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Open STL" })).toHaveLength(2);
     const file = new File(["solid"], "mini.stl");
     fireEvent.change(screen.getByTestId("stl-file-input"), { target: { files: [file] } });
 
@@ -67,7 +67,7 @@ describe("AppShell", () => {
     renderShell();
 
     expect(screen.getByRole("heading", { name: "Open an STL to study its values" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose STL file" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Open STL" })).toHaveLength(2);
     expect(screen.queryByRole("toolbar", { name: "Camera" })).not.toBeInTheDocument();
   });
 
@@ -84,12 +84,12 @@ describe("AppShell", () => {
   });
 
   it("groups controls into four inspector tabs", () => {
-    renderShell({ activeTab: "scene" });
+    renderShell({ activeTab: "model" });
 
     const tabs = within(screen.getByRole("tablist", { name: "Controls" })).getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Light", "Values", "Scene", "Presets"]);
-    expect(screen.getByRole("tab", { name: "Scene" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Scene");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Light", "Values", "Model", "Presets"]);
+    expect(screen.getByRole("tab", { name: "Model" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Model");
   });
 
   it("hides and shows the desktop inspector", () => {
@@ -195,23 +195,48 @@ describe("Light panel", () => {
     expect(screen.getByRole("switch", { name: "Keep Second Light Opposite" })).toBeChecked();
     expect(screen.getByRole("slider", { name: "Second Azimuth" })).toBeDisabled();
     expect(screen.getByRole("slider", { name: "Second Elevation" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Cool Blue Fill" })).toBeEnabled();
     cleanup();
 
     renderShell({ activeTab: "light", lightingMode: "directional" });
     expect(screen.queryByRole("switch", { name: "Keep Second Light Opposite" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Cool Blue Fill" })).not.toBeInTheDocument();
   });
 
-  it("turns on color presentation when the warm key is selected", () => {
-    const { dispatch } = renderShell({ activeTab: "light" });
+  it("offers the same key and fill color choices in every setup", () => {
+    for (const lightingMode of ["directional", "zenithal", "dual"] as const) {
+      const { dispatch } = renderShell({ activeTab: "light", lightingMode });
+      const key = screen.getByRole("radiogroup", { name: "Key light color" });
+      const fill = screen.getByRole("radiogroup", { name: "Fill colors" });
 
-    fireEvent.click(screen.getByRole("switch", { name: "Warm Key Light" }));
+      expect(within(key).getByRole("radio", { name: /White/ })).toBeChecked();
+      expect(within(fill).getByRole("radio", { name: /Neutral/ })).toBeChecked();
+      fireEvent.click(within(key).getByRole("radio", { name: /Warm/ }));
+      fireEvent.click(within(fill).getByRole("radio", { name: /Cool blue/ }));
+      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+        { type: "set-key-color-preset", preset: "warm" },
+        { type: "set-fill-palette", palette: "cool" },
+      ]);
+      cleanup();
+    }
+  });
 
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "set-light", patch: { keyColor: "#ffe2b3" } },
-      { type: "set-value-ramp", patch: { grayscale: false } },
-    ]);
+  it("marks hand-picked colors as custom and opens their editor", () => {
+    const light = { ...createInitialState().light, keyColor: "#ee7040", environmentColor: "#d0dfef" };
+    renderShell({ activeTab: "light", light });
+
+    expect(screen.getByRole("radiogroup", { name: "Key light color" }).querySelector("[data-state='checked']")).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "Fill colors" }).querySelector("[data-state='checked']")).toBeNull();
+    expect(screen.getByRole("button", { name: "Custom" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Environment Color")).toHaveValue("#d0dfef");
+    expect(screen.getByLabelText("Floor Color")).toBeInTheDocument();
+  });
+
+  it("explains when grayscale hides chosen colors and turns color back on", () => {
+    const { dispatch } = renderShell({ activeTab: "light", light: { ...createInitialState().light, keyColor: "#ffe2b3" } });
+
+    expect(screen.getByText(/Neutral Grayscale is on/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show colors" }));
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "set-value-ramp", patch: { grayscale: false } });
   });
 
   it("locks setup and direction edits while the light is locked", () => {
@@ -224,6 +249,7 @@ describe("Light panel", () => {
     });
     expect(screen.getByRole("slider", { name: "Intensity" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reset setup" })).toBeDisabled();
+    expect(within(screen.getByRole("radiogroup", { name: "Fill colors" })).getByRole("radio", { name: /Cool blue/ })).toBeDisabled();
   });
 });
 
@@ -240,12 +266,41 @@ describe("Values and presets panels", () => {
     expect(screen.getAllByRole("slider", { name: /^Boundary/ })).toHaveLength(3);
   });
 
-  it("explains empty presets and saves the current look", () => {
-    const { dispatch } = renderShell({ activeTab: "presets" });
+  it("resets all value settings from the Values tab", () => {
+    const { dispatch } = renderShell({ activeTab: "values" });
 
-    expect(screen.getByText("No saved looks yet.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Save current look" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset all value settings" }));
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "reset-value-ramp" });
+  });
+
+  it("explains empty presets and saves one, even while the light is locked", () => {
+    const { dispatch } = renderShell({ activeTab: "presets", light: { ...createInitialState().light, locked: true } });
+
+    expect(screen.getByText("No saved presets yet.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
 
     expect(dispatch).toHaveBeenCalledWith({ type: "save-preset" });
+  });
+
+  it("renames and deletes presets and blocks saving when all slots are used", () => {
+    let state = createInitialState();
+    for (let i = 0; i < 8; i++) state = appReducer(state, { type: "save-preset" });
+    const { dispatch } = renderShell({ activeTab: "presets", presets: state.presets });
+    const first = state.presets[0];
+
+    expect(screen.getByRole("button", { name: "Save preset" })).toBeDisabled();
+    expect(screen.getByText(/All 8 slots are used/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: `Rename ${first.name}` }));
+    const input = screen.getByRole("textbox", { name: "Preset name" });
+    fireEvent.change(input, { target: { value: "Rim test" } });
+    fireEvent.submit(input);
+    fireEvent.click(screen.getByRole("button", { name: `Delete ${first.name}` }));
+
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "rename-preset", presetId: first.id, name: "Rim test" },
+      { type: "delete-preset", presetId: first.id },
+    ]);
   });
 });
