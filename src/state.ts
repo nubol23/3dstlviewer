@@ -21,7 +21,7 @@ export const STORAGE_KEY = "stl-value-viewer:v1";
 export const DEFAULT_LIGHT: LightState = {
   azimuthDeg: 315, elevationDeg: 50, distance: 2.8, intensity: 5.5,
   environmentIntensity: 0.25, spread: 0.5, shadowSoftness: 0.35,
-  secondaryIntensity: 0.3, secondaryAzimuthDeg: 135, secondaryElevationDeg: 35,
+  secondaryIntensity: 0.3, secondaryOpposite: false, secondaryAzimuthDeg: 135, secondaryElevationDeg: 35,
   sourceSize: 0.15, reflector: false, locked: false,
   keyColor: "#ffffff", secondaryColor: "#ffffff", environmentColor: "#ffffff",
 };
@@ -38,7 +38,7 @@ export const LIGHT_SETUPS: readonly LightSetup[] = [
   { id: "broad-zenithal", name: "Broad Zenithal", description: "Overhead light blended with an all-around gradient environment.", lightingMode: "broad-zenithal", light: { ...DEFAULT_LIGHT, azimuthDeg: 0, elevationDeg: 90, spread: 0.35, environmentIntensity: 0.18 } },
   { id: "directional", name: "Directional", description: "Upper-front-left key.", lightingMode: "directional", light: { ...DEFAULT_LIGHT } },
   { id: "local", name: "Local Studio", description: "Nearby lamp with distance falloff.", lightingMode: "local", light: { ...DEFAULT_LIGHT, distance: 2, intensity: 5.5 } },
-  { id: "dual", name: "Double Directional", description: "Two independently shadowed lights.", lightingMode: "dual", light: { ...DEFAULT_LIGHT } },
+  { id: "dual", name: "Double Directional", description: "Two shadowed lights with an opposing fill azimuth.", lightingMode: "dual", light: { ...DEFAULT_LIGHT, secondaryOpposite: true } },
   { id: "reflected", name: "Reflected Fill", description: "Key plus environment and floor; refinement resolves actual bounce.", lightingMode: "reflected", light: { ...DEFAULT_LIGHT, environmentIntensity: 0.35 } },
 ];
 const DEFAULT_PRESETS: LightPreset[] = [];
@@ -63,11 +63,15 @@ export function createInitialState(): AppState {
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case "set-light":
+    case "set-light": {
       if (state.light.locked) {
         return state;
       }
-      return { ...state, light: assertLightState({ ...state.light, ...action.patch }) };
+      const light = assertLightState({ ...state.light, ...action.patch });
+      return { ...state, light: light.secondaryOpposite
+        ? { ...light, secondaryAzimuthDeg: (light.azimuthDeg + 180) % 360 }
+        : light };
+    }
     case "reset-light":
       if (state.light.locked) {
         return state;
@@ -174,7 +178,7 @@ type PersistableAppState = Pick<
 
 export function toPersistedState(state: PersistableAppState): PersistedViewerState {
   return {
-    version: 7,
+    version: 8,
     light: state.light,
     renderStyle: state.renderStyle,
     valueStepCount: state.valueStepCount,
@@ -260,6 +264,7 @@ const LIGHT_STATE_SCHEMA: z.ZodType<LightState> = z.object({
   environmentIntensity: numberRangeSchema("environment intensity", 0, 3),
   spread: numberRangeSchema("zenithal spread", 0, 1),
   secondaryIntensity: numberRangeSchema("secondary ratio", 0, 2),
+  secondaryOpposite: z.boolean(),
   secondaryAzimuthDeg: numberRangeSchema("secondary azimuth", 0, 360),
   secondaryElevationDeg: numberRangeSchema("secondary elevation", -78, 90),
   sourceSize: numberRangeSchema("source size", 0, 1),
@@ -334,7 +339,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
     value,
     "Invalid persisted viewer state",
   );
-  parseSchema(z.literal(7), persisted.version, "Unsupported persisted viewer state version");
+  parseSchema(z.literal(8), persisted.version, "Unsupported persisted viewer state version");
   assertValueRenderStyle(persisted.renderStyle);
   assertValueStepCount(persisted.valueStepCount);
   const presets = parseSchema(
@@ -347,7 +352,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
 
   if (assertValueRampState(persisted.valueRamp).thresholds.length !== persisted.valueStepCount - 1) throw new Error("Invalid persisted threshold count");
   return {
-    version: 7,
+    version: 8,
     light: assertLightState(persisted.light),
     renderStyle: persisted.renderStyle,
     valueStepCount: persisted.valueStepCount,

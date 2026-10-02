@@ -217,6 +217,60 @@ describe("light reducer lock semantics", () => {
   });
 });
 
+describe("opposing directional fill", () => {
+  it("links azimuth by default while keeping elevation, ratio and softness independent", () => {
+    let state = appReducer(createInitialState(), { type: "apply-light-setup", setupId: "dual" });
+    expect(state.light.secondaryOpposite).toBe(true);
+    expect(state.light.secondaryAzimuthDeg).toBe(135);
+    expect(state.light.secondaryIntensity).toBe(0.3);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 350, elevationDeg: 70, secondaryElevationDeg: 25, secondaryIntensity: 1.2 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(170);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 180 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(0);
+    expect(state.light.secondaryElevationDeg).toBe(25);
+    expect(state.light.secondaryIntensity).toBe(1.2);
+    expect(state.light.shadowSoftness).toBe(0.35);
+  });
+
+  it("unlinks without a jump and relinks only the azimuth", () => {
+    let state = appReducer(createInitialState(), { type: "apply-light-setup", setupId: "dual" });
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 270 } });
+    state = appReducer(state, { type: "set-light", patch: { secondaryOpposite: false } });
+    expect(state.light.secondaryAzimuthDeg).toBe(90);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 30 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(90);
+    state = appReducer(state, { type: "set-light", patch: { secondaryAzimuthDeg: 80, secondaryElevationDeg: 40 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(80);
+    state = appReducer(state, { type: "set-light", patch: { secondaryOpposite: true } });
+    expect(state.light.secondaryAzimuthDeg).toBe(210);
+    expect(state.light.secondaryElevationDeg).toBe(40);
+  });
+
+  it("restores linked and independent settings and saved presets", () => {
+    let state = appReducer(createInitialState(), { type: "apply-light-setup", setupId: "dual" });
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 350, secondaryElevationDeg: 25, secondaryIntensity: 1.2 } });
+    state = appReducer(state, { type: "save-preset" });
+    const linkedId = state.presets[0].id;
+    state = appReducer(state, { type: "set-light", patch: { secondaryOpposite: false, secondaryAzimuthDeg: 215 } });
+    state = appReducer(state, { type: "save-preset" });
+    const independentId = state.presets[0].id;
+    writePersistedState(state);
+    state = createInitialState();
+    expect(state.light.secondaryOpposite).toBe(false);
+    expect(state.light.secondaryAzimuthDeg).toBe(215);
+    state = appReducer(state, { type: "load-preset", presetId: linkedId });
+    expect(state.light.secondaryOpposite).toBe(true);
+    expect(state.light.secondaryAzimuthDeg).toBe(170);
+    state = appReducer(state, { type: "set-light", patch: { azimuthDeg: 0 } });
+    expect(state.light.secondaryAzimuthDeg).toBe(180);
+    state = appReducer(state, { type: "load-preset", presetId: independentId });
+    expect(state.light.secondaryOpposite).toBe(false);
+    expect(state.light.secondaryAzimuthDeg).toBe(215);
+    expect(state.light.secondaryElevationDeg).toBe(25);
+    expect(state.light.secondaryIntensity).toBe(1.2);
+  });
+});
+
 describe("load reducer lifecycle", () => {
   it("ignores stale successes and stale errors", () => {
     const state = createInitialState();
@@ -308,7 +362,7 @@ describe("persistence codec", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        version: 7,
+        version: 8,
         light: createInitialState().light,
         renderStyle: "not-a-style",
         valueStepCount: 5,
@@ -342,13 +396,13 @@ describe("persistence codec", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it("discards the previous preset schema when contrast is introduced", () => {
+  it("discards the previous preset schema when opposing fill is introduced", () => {
     const previous = toPersistedState(createInitialState());
-    const previousRamp = Object.fromEntries(Object.entries(previous.valueRamp).filter(([key]) => key !== "contrast"));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...previous, version: 6, valueRamp: previousRamp }));
+    const previousLight = Object.fromEntries(Object.entries(previous.light).filter(([key]) => key !== "secondaryOpposite"));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...previous, version: 7, light: previousLight }));
     expect(readPersistedState()).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
-    expect(createInitialState().valueRamp.contrast).toBe(2.2);
+    expect(createInitialState().light.secondaryOpposite).toBe(false);
   });
 
   it("cleanly resets legacy state instead of adding compatibility shims", () => {

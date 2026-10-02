@@ -33,6 +33,7 @@ export type LightState = {
   environmentIntensity: number;
   spread: number;
   secondaryIntensity: number;
+  secondaryOpposite: boolean;
   secondaryAzimuthDeg: number;
   secondaryElevationDeg: number;
   sourceSize: number;
@@ -97,7 +98,7 @@ export type LightPreset = {
 };
 
 export type PersistedViewerState = {
-  version: 7;
+  version: 8;
   light: LightState;
   renderStyle: ValueRenderStyle;
   valueStepCount: ValueStepCount;
