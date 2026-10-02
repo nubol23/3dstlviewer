@@ -9,9 +9,6 @@ import { SceneLighting } from "./SceneLighting";
 import { StudyPipeline, type RefinementApi, type RefinementStatus } from "./StudyPipeline";
 import { StlModel } from "./StlModel";
 import type { AppState } from "../types";
-import { MAX_DPR, MOVING_DPR_SCALE } from "../lib/light";
-
-export type { RefinementStatus };
 
 export type ViewerCameraApi = {
   fitToView: () => void;
@@ -30,9 +27,11 @@ const DEFAULT_TARGET = new Vector3(0, 1.2, 0);
 const DEFAULT_POSITION = new Vector3(4.2, 2.8, 5.2);
 // Canvas re-applies its dpr prop on every render, so the lowered ratio while
 // moving is expressed through that prop rather than set behind its back.
-const TOUCH_DPR: [number, number] = [1, MAX_DPR.touch];
-const TOUCH_MOVING_DPR: [number, number] = [1, MAX_DPR.touch * MOVING_DPR_SCALE];
-const DESKTOP_DPR: [number, number] = [1, MAX_DPR.desktop];
+// Touch screens render the same study as desktop at up to 2x, and drop to 1x
+// only while the user orbits or edits a light.
+const TOUCH_DPR: [number, number] = [1, 2];
+const TOUCH_MOVING_DPR = 1;
+const DESKTOP_DPR: [number, number] = [1, 1.5];
 // A longer restore delay than R3F's 200 ms default keeps slow phones from
 // flickering between ratios when a single frame takes longer than the delay.
 const PERFORMANCE = { debounce: 400 };

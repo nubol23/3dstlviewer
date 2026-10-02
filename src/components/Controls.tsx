@@ -107,7 +107,6 @@ export function ColorControl({ label, value, onChange, disabled }: ColorControlP
         id={inputId}
         className="color-field__input"
         type="color"
-        aria-label={label}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
@@ -127,9 +126,7 @@ type SegmentedControlProps<T extends string> = {
   value: T;
   onChange: (next: T) => void;
   ariaLabel: string;
-  disabled?: boolean;
   className?: string;
-  testId?: string;
 };
 
 export function SegmentedControl<T extends string>({
@@ -137,16 +134,12 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   ariaLabel,
-  disabled,
   className,
-  testId,
 }: SegmentedControlProps<T>) {
   return (
     <RadioGroup.Root
       className={`segmented${className ? ` ${className}` : ""}`}
       aria-label={ariaLabel}
-      data-testid={testId}
-      disabled={disabled}
       orientation="horizontal"
       value={value}
       onValueChange={(nextValue) => onChange(nextValue as T)}

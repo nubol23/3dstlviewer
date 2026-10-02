@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { BufferGeometry } from "three";
 import { Toaster, toast } from "sonner";
 import { AppShell, type LoadProgress } from "./components/AppShell";
-import type { RefinementStatus, ViewerCameraApi } from "./components/ViewerCanvas";
+import type { RefinementStatus } from "./components/StudyPipeline";
+import type { ViewerCameraApi } from "./components/ViewerCanvas";
 import { ViewerCanvas } from "./components/ViewerCanvas";
 import { loadStlFile, rebuildLoadedModel, rotateLoadedModel } from "./lib/stl";
 import { appReducer, createInitialState, writePersistedState } from "./state";
@@ -166,7 +167,7 @@ export default function App() {
         position="top-center"
         offset={64}
         mobileOffset={{ top: 60 }}
-        toastOptions={{ style: { background: "#2b2b2b", borderColor: "#555555", color: "#ececec" } }}
+        toastOptions={{ style: { background: "var(--panel)", borderColor: "var(--line-strong)", color: "var(--text)" } }}
       />
     </>
   );

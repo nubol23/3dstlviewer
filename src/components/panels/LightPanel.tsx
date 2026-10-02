@@ -84,7 +84,6 @@ export function LightPanel({ state, dispatch }: LightPanelProps) {
             icon={locked ? <Lock size={16} /> : <LockOpen size={16} />}
             label="Lock light"
             aria-pressed={locked}
-            className={locked ? "is-pressed" : undefined}
             onClick={() => dispatch({ type: "toggle-lock" })}
             data-testid="lock-light-button"
           />

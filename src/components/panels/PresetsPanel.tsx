@@ -1,9 +1,8 @@
 import type { Dispatch, FormEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { BookmarkPlus, Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import type { AppAction, AppState, LightPreset } from "../../types";
-import { LIGHT_SETUPS, MAX_PRESETS } from "../../state";
+import { LIGHT_SETUPS, MAX_PRESET_NAME_LENGTH, MAX_PRESETS } from "../../state";
 import { ControlSection } from "../Controls";
 import { IconButton } from "../IconButton";
 
@@ -16,17 +15,14 @@ function describePreset(preset: LightPreset): string {
 type PresetsPanelProps = {
   state: AppState;
   dispatch: Dispatch<AppAction>;
+  onDelete: (preset: LightPreset, index: number) => void;
 };
 
-export function PresetsPanel({ state, dispatch }: PresetsPanelProps) {
+export function PresetsPanel({ state, dispatch, onDelete }: PresetsPanelProps) {
   const locked = state.light.locked;
   const full = state.presets.length >= MAX_PRESETS;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
-  const presetCountRef = useRef(state.presets.length);
-  useEffect(() => {
-    presetCountRef.current = state.presets.length;
-  }, [state.presets.length]);
 
   const startRename = (preset: LightPreset) => {
     setEditingId(preset.id);
@@ -39,22 +35,6 @@ export function PresetsPanel({ state, dispatch }: PresetsPanelProps) {
       dispatch({ type: "rename-preset", presetId: editingId, name: draftName });
     }
     setEditingId(null);
-  };
-
-  const deletePreset = (preset: LightPreset, index: number) => {
-    dispatch({ type: "delete-preset", presetId: preset.id });
-    toast(`Deleted ${preset.name}.`, {
-      action: {
-        label: "Undo",
-        onClick: () => {
-          if (presetCountRef.current >= MAX_PRESETS) {
-            toast.error(`All ${MAX_PRESETS} slots are used, so ${preset.name} could not be restored.`);
-            return;
-          }
-          dispatch({ type: "restore-preset", preset, index });
-        },
-      },
-    });
   };
 
   return (
@@ -84,7 +64,7 @@ export function PresetsPanel({ state, dispatch }: PresetsPanelProps) {
                     <input
                       aria-label="Preset name"
                       value={draftName}
-                      maxLength={40}
+                      maxLength={MAX_PRESET_NAME_LENGTH}
                       // Focus moves into the field the user just asked to edit.
                       // eslint-disable-next-line jsx-a11y/no-autofocus
                       autoFocus
@@ -111,7 +91,7 @@ export function PresetsPanel({ state, dispatch }: PresetsPanelProps) {
                 )}
                 <div className="preset__actions">
                   <IconButton icon={<Pencil size={15} />} label={`Rename ${preset.name}`} onClick={() => startRename(preset)} />
-                  <IconButton icon={<Trash2 size={15} />} label={`Delete ${preset.name}`} onClick={() => deletePreset(preset, index)} />
+                  <IconButton icon={<Trash2 size={15} />} label={`Delete ${preset.name}`} onClick={() => onDelete(preset, index)} />
                 </div>
               </li>
             ))}

@@ -1,8 +1,6 @@
 import { Sparkles, Square, Undo2 } from "lucide-react";
 import type { CSSProperties } from "react";
-import type { RefinementStatus } from "./ViewerCanvas";
-
-export const REFINEMENT_SAMPLE_BUDGET = 64;
+import { REFINEMENT_SAMPLE_BUDGET, type RefinementStatus } from "./StudyPipeline";
 
 function describe(status: RefinementStatus): { text: string; progress: number | null } {
   switch (status.phase) {
@@ -58,7 +56,7 @@ export function RefineControl({ status, hasModel, onRefine, onStop }: RefineCont
           <span>Back to preview</span>
         </button>
       )}
-      {(status.phase === "preview" || status.phase === "error") && (
+      {(status.phase === "preview" || status.phase === "error" || status.phase === "done") && (
         <button
           type="button"
           className="btn btn--primary"
@@ -67,7 +65,7 @@ export function RefineControl({ status, hasModel, onRefine, onStop }: RefineCont
           title="Path-trace the current light for accurate bounce light and soft shadows"
         >
           <Sparkles size={15} aria-hidden="true" />
-          <span>{status.phase === "error" ? "Try again" : "Refine lighting"}</span>
+          <span>{status.phase === "error" ? "Try again" : status.phase === "done" ? "Refine again" : "Refine lighting"}</span>
         </button>
       )}
     </div>

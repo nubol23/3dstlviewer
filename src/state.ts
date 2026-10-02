@@ -33,7 +33,7 @@ export const DEFAULT_VALUE_STEP_COUNT: ValueStepCount = 5;
 export const DEFAULT_LIGHTING_MODE: LightingMode = "directional";
 export const DEFAULT_FLOOR: FloorState = { color: FILL_PALETTES.neutral.floorColor, reflectance: 0.5 };
 export const MAX_PRESETS = 8;
-const MAX_PRESET_NAME_LENGTH = 40;
+export const MAX_PRESET_NAME_LENGTH = 40;
 export type LightSetup = {
   id: string; name: string; description: string;
   light: LightState; lightingMode: LightingMode;
@@ -187,7 +187,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       const preset = assertPreset(action.preset);
       const presets = [...state.presets];
-      presets.splice(Math.min(Math.max(action.index, 0), presets.length), 0, preset);
+      presets.splice(Math.min(action.index, presets.length), 0, preset);
       return { ...state, presets };
     }
     case "load-preset": {
@@ -405,7 +405,7 @@ function assertPersistedViewerState(value: unknown): PersistedViewerState {
   const presets = parseSchema(
     z.array(z.unknown(), {
       error: "Invalid persisted viewer state: presets must be an array",
-    }).max(MAX_PRESETS, `Invalid persisted viewer state: more than ${MAX_PRESETS} presets`),
+    }),
     persisted.presets,
     "Invalid persisted viewer state presets",
   );

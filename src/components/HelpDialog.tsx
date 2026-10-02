@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import { X } from "lucide-react";
 import { IconButton } from "./IconButton";
 
-export const SHORTCUTS: ReadonlyArray<{ keys: string[]; action: string }> = [
+const SHORTCUTS: ReadonlyArray<{ keys: string[]; action: string }> = [
   { keys: ["O"], action: "Open an STL" },
   { keys: ["F"], action: "Fit the model to the view" },
   { keys: ["R"], action: "Reset the camera" },

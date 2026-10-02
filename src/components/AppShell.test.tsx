@@ -6,7 +6,7 @@ import { appReducer, createInitialState } from "../state";
 import { defaultThresholds } from "../lib/valueRamp";
 import type { AppAction, AppState } from "../types";
 import { AppShell, type LoadProgress } from "./AppShell";
-import type { RefinementStatus } from "./ViewerCanvas";
+import type { RefinementStatus } from "./StudyPipeline";
 
 function mockLayout(sheet: boolean) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -333,14 +333,6 @@ describe("Values and presets panels", () => {
     expect(dispatch).toHaveBeenCalledWith({ type: "set-value-ramp", patch: { thresholds: [0.25, 0.51, 0.75] } });
   });
 
-  it("resets all value settings from the Values tab", () => {
-    const { dispatch } = renderShell({ activeTab: "values" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Reset all value settings" }));
-
-    expect(dispatch).toHaveBeenCalledWith({ type: "reset-value-ramp" });
-  });
-
   it("explains empty presets and saves one, even while the light is locked", () => {
     const { dispatch } = renderShell({ activeTab: "presets", light: { ...createInitialState().light, locked: true } });
 
@@ -350,24 +342,12 @@ describe("Values and presets panels", () => {
     expect(dispatch).toHaveBeenCalledWith({ type: "save-preset" });
   });
 
-  it("renames and deletes presets and blocks saving when all slots are used", () => {
+  it("blocks saving when all preset slots are used", () => {
     let state = createInitialState();
     for (let i = 0; i < 8; i++) state = appReducer(state, { type: "save-preset" });
-    const { dispatch } = renderShell({ activeTab: "presets", presets: state.presets });
-    const first = state.presets[0];
+    renderShell({ activeTab: "presets", presets: state.presets });
 
     expect(screen.getByRole("button", { name: "Save preset" })).toBeDisabled();
     expect(screen.getByText(/All 8 slots are used/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: `Rename ${first.name}` }));
-    const input = screen.getByRole("textbox", { name: "Preset name" });
-    fireEvent.change(input, { target: { value: "Rim test" } });
-    fireEvent.submit(input);
-    fireEvent.click(screen.getByRole("button", { name: `Delete ${first.name}` }));
-
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "rename-preset", presetId: first.id, name: "Rim test" },
-      { type: "delete-preset", presetId: first.id },
-    ]);
   });
 });

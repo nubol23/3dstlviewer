@@ -227,8 +227,9 @@ same phases and budget as before.
 ## Mobile render quality
 
 Phones and tablets now render the same study as desktop: 2048/1024 shadow maps,
-16 PCSS samples, Medium half-resolution AO and Medium SMAA. They render at the
-device pixel ratio capped at 2 instead of 1, while desktop keeps its 1.5 cap. While
+16 PCSS samples, Medium half-resolution AO and Medium SMAA. Touch screens, and
+any window up to 1024 px wide, render at the device pixel ratio capped at 2
+instead of 1; wider desktop windows keep their 1.5 cap. While
 the user orbits or changes a light, the library's performance regression lowers
 touch rendering to a 1x ratio and restores 2x 400 ms after the last change, so the
 image being studied is always full quality. Camera transitions and resizes do not

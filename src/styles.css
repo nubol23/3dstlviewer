@@ -274,7 +274,7 @@ p {
   width: 100%;
 }
 
-.btn.is-pressed {
+.btn[aria-pressed="true"] {
   border-color: rgba(242, 181, 68, 0.5);
   background: var(--lamp-soft);
   color: var(--lamp);
@@ -668,11 +668,6 @@ kbd {
   }
 }
 
-.threshold-editor__thumb:focus-visible {
-  outline: 2px solid var(--lamp);
-  outline-offset: 2px;
-}
-
 .threshold-editor__values {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -740,7 +735,7 @@ kbd {
   transition: background 120ms var(--ease), color 120ms var(--ease);
 }
 
-.segmented__item:not([data-disabled]):not([data-state="checked"]):hover {
+.segmented__item:not([data-state="checked"]):hover {
   color: var(--text);
 }
 
@@ -1629,16 +1624,16 @@ kbd {
   padding: 0 8px;
 }
 
-.app-shell[data-layout="sheet"] .inspector[data-sheet="closed"] .inspector__tabs {
+.app-shell[data-sheet="closed"] .inspector .inspector__tabs {
   border-bottom: 0;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.app-shell[data-layout="sheet"] .inspector[data-sheet="closed"] .inspector__tab[data-state="active"]:not(:focus-visible) {
+.app-shell[data-sheet="closed"] .inspector .inspector__tab[data-state="active"]:not(:focus-visible) {
   color: var(--text-3);
 }
 
-.app-shell[data-layout="sheet"] .inspector[data-sheet="closed"] .inspector__tab::after {
+.app-shell[data-sheet="closed"] .inspector .inspector__tab::after {
   background: transparent;
 }
 
@@ -1656,7 +1651,7 @@ kbd {
   transition: height 220ms var(--ease);
 }
 
-.app-shell[data-layout="sheet"] .inspector[data-sheet="full"] .inspector__body {
+.app-shell[data-sheet="full"] .inspector .inspector__body {
   height: 72dvh;
 }
 

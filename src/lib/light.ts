@@ -12,8 +12,4 @@ export function resolveStudyLight(light: LightState, mode: LightingMode): LightS
   return mode === "zenithal" || mode === "broad-zenithal" ? { ...light, azimuthDeg: 0, elevationDeg: 90 } : light;
 }
 
-// Phones and tablets render the same study as desktop. They only differ in the
-// pixel-ratio cap and in dropping resolution while the camera or light moves.
 export const RENDER_BUDGET = { primaryShadow: 2048, secondaryShadow: 1024, pcssSamples: 16 } as const;
-export const MAX_DPR = { desktop: 1.5, touch: 2 } as const;
-export const MOVING_DPR_SCALE = 0.5;

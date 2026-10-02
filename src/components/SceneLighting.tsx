@@ -44,20 +44,19 @@ export function SceneLighting({ light, lightingMode, modelFit, floor }: Props) {
   const directionalDistance = radius * 4;
   const position = sphericalToPosition(effective.azimuthDeg, effective.elevationDeg, lightingMode === "local" ? height * light.distance : directionalDistance).add(center);
   const secondary = sphericalToPosition(light.secondaryAzimuthDeg, light.secondaryElevationDeg, directionalDistance).add(center);
-  const budget = RENDER_BUDGET;
   const extent = radius * 1.25;
   return <>
     <primitive object={target} />
-    <SoftShadows size={light.shadowSoftness * 35} samples={budget.pcssSamples} />
+    <SoftShadows size={light.shadowSoftness * 35} samples={RENDER_BUDGET.pcssSamples} />
     {lightingMode === "local" ? <primitive object={spotlight} radius={light.sourceSize * height}
       position={position} target={target} color={light.keyColor} intensity={light.intensity * (height * 2) ** 2}
       angle={Math.PI / 3} penumbra={0.4} decay={2} castShadow
-      shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
+      shadow-mapSize={[RENDER_BUDGET.primaryShadow, RENDER_BUDGET.primaryShadow]}
       shadow-camera-near={0.1} shadow-camera-far={height * 12}
       shadow-bias={-0.0001} shadow-normalBias={height * 0.001}
     /> : <directionalLight
       position={position} target={target} color={light.keyColor} intensity={light.intensity * (1 - spread)} castShadow
-      shadow-mapSize={[budget.primaryShadow, budget.primaryShadow]}
+      shadow-mapSize={[RENDER_BUDGET.primaryShadow, RENDER_BUDGET.primaryShadow]}
       shadow-camera-left={-extent} shadow-camera-right={extent}
       shadow-camera-top={extent} shadow-camera-bottom={-extent}
       shadow-camera-near={0.1} shadow-camera-far={directionalDistance + radius * 3}
@@ -65,7 +64,7 @@ export function SceneLighting({ light, lightingMode, modelFit, floor }: Props) {
     />}
     {lightingMode === "dual" && <directionalLight
       position={secondary} target={target} color={light.secondaryColor} visible={light.secondaryIntensity > 0} intensity={light.intensity * light.secondaryIntensity} castShadow
-      shadow-mapSize={[budget.secondaryShadow, budget.secondaryShadow]}
+      shadow-mapSize={[RENDER_BUDGET.secondaryShadow, RENDER_BUDGET.secondaryShadow]}
       shadow-camera-left={-extent} shadow-camera-right={extent}
       shadow-camera-top={extent} shadow-camera-bottom={-extent}
       shadow-camera-near={0.1} shadow-camera-far={directionalDistance + radius * 3}

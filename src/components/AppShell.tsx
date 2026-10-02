@@ -1,20 +1,21 @@
-import type { ActiveTab, AppAction, AppState, OrientationAxis } from "../types";
+import type { ActiveTab, AppAction, AppState, LightPreset, OrientationAxis } from "../types";
 import { Bookmark, Box, CircleHelp, Contrast, FolderOpen, LoaderCircle, PanelRightClose, PanelRightOpen, RotateCcw, Scan, Sun } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { toast } from "sonner";
 import type { ChangeEvent, DragEvent, Dispatch, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { MAX_PRESETS } from "../state";
 import { HelpDialog } from "./HelpDialog";
 import { IconButton } from "./IconButton";
 import { RefineControl } from "./RefineControl";
 import { StudyBar, studyOptionActions, type StudyOption } from "./StudyBar";
-import type { RefinementStatus } from "./ViewerCanvas";
+import type { RefinementStatus } from "./StudyPipeline";
 import { LightPanel } from "./panels/LightPanel";
 import { PresetsPanel } from "./panels/PresetsPanel";
 import { ModelPanel } from "./panels/ModelPanel";
 import { ValuesPanel } from "./panels/ValuesPanel";
 
-export const SHEET_LAYOUT_QUERY = "(max-width: 760px), (max-width: 1024px) and (orientation: portrait)";
+const SHEET_LAYOUT_QUERY = "(max-width: 760px), (max-width: 1024px) and (orientation: portrait)";
 
 type SheetState = "closed" | "half" | "full";
 
@@ -100,6 +101,11 @@ export function AppShell({
   const [dropActive, setDropActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const helpRef = useRef<HTMLDialogElement>(null);
+  // The undo toast outlives the Presets tab, so it reads the live count here.
+  const presetCountRef = useRef(state.presets.length);
+  useEffect(() => {
+    presetCountRef.current = state.presets.length;
+  }, [state.presets.length]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const tabWasActiveRef = useRef(false);
   const dragDepthRef = useRef(0);
@@ -119,7 +125,7 @@ export function AppShell({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !helpRef.current?.open) {
         setSheet("closed");
       }
     };
@@ -129,6 +135,22 @@ export function AppShell({
   }, [sheet, sheetLayout]);
 
   const openFilePicker = () => fileInputRef.current?.click();
+
+  const deletePreset = (preset: LightPreset, index: number) => {
+    dispatch({ type: "delete-preset", presetId: preset.id });
+    toast(`Deleted ${preset.name}.`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (presetCountRef.current >= MAX_PRESETS) {
+            toast.error(`All ${MAX_PRESETS} slots are used, so ${preset.name} could not be restored.`);
+            return;
+          }
+          dispatch({ type: "restore-preset", preset, index });
+        },
+      },
+    });
+  };
   const openHelp = () => helpRef.current?.showModal();
 
   useEffect(() => {
@@ -351,7 +373,6 @@ export function AppShell({
       <Tabs.Root
         id="inspector"
         className="inspector"
-        data-sheet={sheetLayout ? sheet : undefined}
         data-dragging={sheetDragging || undefined}
         hidden={!sheetLayout && !panelOpen}
         value={state.activeTab}
@@ -405,7 +426,7 @@ export function AppShell({
             />
           </Tabs.Content>
           <Tabs.Content value="presets" className="inspector__panel">
-            <PresetsPanel state={state} dispatch={dispatch} />
+            <PresetsPanel state={state} dispatch={dispatch} onDelete={deletePreset} />
           </Tabs.Content>
         </div>
       </Tabs.Root>

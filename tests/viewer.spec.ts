@@ -401,6 +401,8 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
     }
   }
   expect(shadowPixels).toBeGreaterThan(previewPixels.width * previewPixels.height * 0.003);
+  await expect(page.getByRole("button", { name: "Refine again", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to preview", exact: true })).toBeVisible();
   await selectStudy(page, 5);
   await openTab(page, "Values");
   await page.getByRole("slider", { name: "Contrast", exact: true }).fill("2.5");
@@ -688,6 +690,21 @@ test("renames, deletes and restores presets", async ({ page }) => {
   await page.reload();
   await openTab(page, "Presets");
   await expect(page.locator(".preset__name")).toHaveText(["Rim test", "Preset 1"]);
+});
+
+test("explains instead of failing when undoing a delete after all slots filled up", async ({ page }) => {
+  await page.goto("/");
+  await openTab(page, "Presets");
+  const save = page.getByRole("button", { name: "Save preset", exact: true });
+  for (let i = 0; i < 8; i++) await save.click();
+  await page.getByRole("button", { name: "Delete Preset 1", exact: true }).click();
+  await openTab(page, "Light");
+  await openTab(page, "Presets");
+  await save.click();
+  await expect(save).toBeDisabled();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByText("All 8 slots are used, so Preset 1 could not be restored.")).toBeVisible();
+  await expect(page.locator(".preset__name")).toHaveCount(8);
 });
 
 test("increases value separation without flattening the illuminated shadows", async ({ page }) => {

@@ -9,6 +9,7 @@ import { ValueStudyEffect } from "../lib/ValueStudyEffect";
 
 export type RefinementStatus = { available: boolean; phase: "preview" | "preparing" | "compiling" | "sampling" | "done" | "error"; samples: number; progress: number; message?: string };
 export type RefinementApi = { refine: () => void; stop: () => void };
+export const REFINEMENT_SAMPLE_BUDGET = 64;
 type Session = ReturnType<typeof createRefinement>;
 type Props = { state: AppState; mobile: boolean; onStatus: (status: RefinementStatus) => void };
 
@@ -156,7 +157,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
               resources.texture.texture = active.tracer.target.texture;
               resources.replacement.enabled = true; resources.ao.enabled = false; active.denoise.enabled = true;
             }
-            const finished = samples >= 64 || now - job.current.sampleStart >= 5000;
+            const finished = samples >= REFINEMENT_SAMPLE_BUDGET || now - job.current.sampleStart >= 5000;
             if (finished && samples < active.tracer.minSamples) {
               preview();
               report("error", samples, 0, "The time budget ended before a complete sample. Preview remains active.");

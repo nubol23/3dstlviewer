@@ -89,7 +89,7 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
   const secondPoint = lightingMode === "dual"
     ? projectLightToDomePoint({ azimuthDeg: light.secondaryAzimuthDeg, elevationDeg: light.secondaryElevationDeg })
     : null;
-  const secondDraggable = Boolean(secondPoint) && !light.secondaryOpposite && !disabled;
+  const secondDraggable = Boolean(secondPoint) && !light.secondaryOpposite;
 
   const pointerToDome = useCallback((event: PointerEvent | ReactPointerEvent<HTMLElement>) => {
     if (!domeRef.current) {
@@ -136,17 +136,11 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
       if (!dome) return;
       const nearSecond = secondDraggable && secondPoint
         && Math.hypot(dome.x - secondPoint.x * dome.radius, dome.y - secondPoint.y * dome.radius) <= MARKER_GRAB_RADIUS_PX;
-      if (nearSecond) {
-        dragTarget.current = "second";
-      } else if (!directionDisabled) {
-        dragTarget.current = "key";
-      } else {
-        return;
-      }
+      dragTarget.current = nearSecond ? "second" : "key";
       domeRef.current?.setPointerCapture(event.pointerId);
       setFromPointer(event.nativeEvent);
     },
-    [directionDisabled, pointerToDome, secondDraggable, secondPoint, setFromPointer],
+    [pointerToDome, secondDraggable, secondPoint, setFromPointer],
   );
 
   const onPointerMove = useCallback(

@@ -33,7 +33,9 @@ function ThresholdEditor({ valueRamp, count, onChange }: { valueRamp: ValueRampS
         step={1}
         minStepsBetweenThumbs={1}
         value={thresholds.map((threshold) => Math.round(threshold * 100))}
-        onValueChange={(next) => onChange(next.map((percent) => percent / 100))}
+        onValueChange={(next) => onChange(next.map((percent, index) => (
+          percent === Math.round(thresholds[index] * 100) ? thresholds[index] : percent / 100
+        )))}
         aria-label="Band boundaries"
         data-testid="threshold-editor"
       >
