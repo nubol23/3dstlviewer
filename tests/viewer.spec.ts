@@ -672,6 +672,80 @@ test.describe("touch rendering quality", () => {
   });
 });
 
+test.describe("mobile controls sheet", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  async function touchDrag(page: Page, x: number, fromY: number, toY: number, steps = 8, stepMs = 16) {
+    const client = await page.context().newCDPSession(page);
+    const point = (y: number) => [{ x, y, id: 1 }];
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(fromY) });
+    for (let step = 1; step <= steps; step++) {
+      await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(fromY + ((toY - fromY) * step) / steps) });
+      await page.waitForTimeout(stepMs);
+    }
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await client.detach();
+  }
+
+  const sheetState = (page: Page) => page.locator(".app-shell").getAttribute("data-sheet");
+
+  test("follows a slow drag on the tab bar and settles on the nearest stop", async ({ page }) => {
+    await page.goto("/");
+    const client = await page.context().newCDPSession(page);
+    const bar = (await page.getByRole("tablist", { name: "Controls" }).boundingBox())!;
+    const x = bar.x + bar.width * 0.3;
+    const y0 = bar.y + bar.height / 2;
+    const body = page.locator("#inspector-body");
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: y0, id: 1 }] });
+    for (let step = 1; step <= 20; step++) {
+      await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y0 - step * 14, id: 1 }] });
+      await page.waitForTimeout(40);
+    }
+    // While held, the sheet tracks the finger rather than ending after the first move.
+    const heldHeight = async () => (await body.boundingBox())?.height ?? 0;
+    await expect.poll(heldHeight).toBeGreaterThan(240);
+    expect(await heldHeight()).toBeLessThan(320);
+    await page.waitForTimeout(150);
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await client.detach();
+    await expect.poll(() => page.locator(".app-shell").getAttribute("data-sheet")).toBe("half");
+  });
+
+  test("drags from the tab bar or from scrolled-to-top content, and taps still switch tabs", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(() => { (window as unknown as { sessionMarker: boolean }).sessionMarker = true; });
+    await page.getByRole("tab", { name: "Light", exact: true }).tap();
+    await expect.poll(() => sheetState(page)).toBe("half");
+
+    const tabs = (await page.getByRole("tablist", { name: "Controls" }).boundingBox())!;
+    const x = tabs.x + tabs.width * 0.3;
+    await touchDrag(page, x, tabs.y + tabs.height / 2, tabs.y - 300, 10, 40);
+    await expect.poll(() => sheetState(page)).toBe("full");
+
+    // A tap right after a drag still reaches the tab.
+    await page.getByRole("tab", { name: "Values", exact: true }).tap();
+    await expect(page.getByRole("tab", { name: "Values", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => sheetState(page)).toBe("full");
+
+    // Content scrolls normally; pulling down at the top drags the sheet instead of the page.
+    const body = page.locator("#inspector-body");
+    const box = (await body.boundingBox())!;
+    await touchDrag(page, x, box.y + box.height * 0.8, box.y + box.height * 0.3, 8, 30);
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect.poll(() => sheetState(page)).toBe("full");
+    await body.evaluate((element) => { element.scrollTop = 0; });
+    // A quick short pull still moves one stop down, although full is the nearest stop.
+    await touchDrag(page, x, box.y + 40, box.y + 190, 5, 8);
+    await expect.poll(() => sheetState(page)).toBe("half");
+
+    const bar = (await page.getByRole("tablist", { name: "Controls" }).boundingBox())!;
+    await touchDrag(page, x, bar.y + bar.height / 2, bar.y + 140, 5, 8);
+    await expect.poll(() => sheetState(page)).toBe("closed");
+    await expect(body).toBeHidden();
+    expect(await page.evaluate(() => (window as unknown as { sessionMarker?: boolean }).sessionMarker)).toBe(true);
+  });
+});
+
 test("renames, deletes and restores presets", async ({ page }) => {
   await page.goto("/");
   await openTab(page, "Presets");

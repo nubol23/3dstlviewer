@@ -35,6 +35,9 @@ const DESKTOP_DPR: [number, number] = [1, 1.5];
 // A longer restore delay than R3F's 200 ms default keeps slow phones from
 // flickering between ratios when a single frame takes longer than the delay.
 const PERFORMANCE = { debounce: 400 };
+// Resizing re-renders the full study, so wait for a sheet drag or snap to settle
+// before matching the canvas to its new size.
+const RESIZE = { debounce: { scroll: 50, resize: 150 } };
 
 export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(function ViewerCanvas({ state, onRefinementChange }, ref) {
   const controlsRef = useRef<CameraControlsType | null>(null);
@@ -89,6 +92,7 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
         frameloop="demand"
         dpr={mobile ? (moving ? TOUCH_MOVING_DPR : TOUCH_DPR) : DESKTOP_DPR}
         performance={PERFORMANCE}
+        resize={RESIZE}
         camera={{ position: DEFAULT_POSITION.toArray(), fov: 38, near: 0.01, far: 100 }}
         gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         onCreated={({ gl, scene }) => {

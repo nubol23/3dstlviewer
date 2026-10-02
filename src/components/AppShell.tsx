@@ -2,13 +2,14 @@ import type { ActiveTab, AppAction, AppState, LightPreset, OrientationAxis } fro
 import { Bookmark, Box, CircleHelp, Contrast, FolderOpen, LoaderCircle, PanelRightClose, PanelRightOpen, RotateCcw, Scan, Sun } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { toast } from "sonner";
-import type { ChangeEvent, DragEvent, Dispatch, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ChangeEvent, DragEvent, Dispatch, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { MAX_PRESETS } from "../state";
 import { HelpDialog } from "./HelpDialog";
 import { IconButton } from "./IconButton";
 import { RefineControl } from "./RefineControl";
 import { StudyBar, studyOptionActions, type StudyOption } from "./StudyBar";
+import { useBottomSheet } from "./useBottomSheet";
 import type { RefinementStatus } from "./StudyPipeline";
 import { LightPanel } from "./panels/LightPanel";
 import { PresetsPanel } from "./panels/PresetsPanel";
@@ -17,8 +18,6 @@ import { ValuesPanel } from "./panels/ValuesPanel";
 
 const SHEET_LAYOUT_QUERY = "(max-width: 760px), (max-width: 1024px) and (orientation: portrait)";
 
-type SheetState = "closed" | "half" | "full";
-
 const TABS: Array<{ value: ActiveTab; label: string; icon: ReactNode }> = [
   { value: "light", label: "Light", icon: <Sun size={18} /> },
   { value: "values", label: "Values", icon: <Contrast size={18} /> },
@@ -26,7 +25,6 @@ const TABS: Array<{ value: ActiveTab; label: string; icon: ReactNode }> = [
   { value: "presets", label: "Presets", icon: <Bookmark size={18} /> },
 ];
 
-const DRAG_THRESHOLD_PX = 6;
 
 export type LoadProgress = {
   fileName: string;
@@ -67,13 +65,6 @@ function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches);
 }
 
-function snapSheet(height: number): SheetState {
-  const ratio = height / window.innerHeight;
-  if (ratio < 0.18) return "closed";
-  if (ratio < 0.58) return "half";
-  return "full";
-}
-
 function hasFiles(event: DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
@@ -95,9 +86,8 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const sheetLayout = useMediaQuery(SHEET_LAYOUT_QUERY);
-  const [sheet, setSheet] = useState<SheetState>("closed");
+  const { sheet, setSheet, dragging: sheetDragging, bodyRef, bodyHeight, headerProps } = useBottomSheet(sheetLayout);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [sheetDragging, setSheetDragging] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const helpRef = useRef<HTMLDialogElement>(null);
@@ -106,18 +96,15 @@ export function AppShell({
   useEffect(() => {
     presetCountRef.current = state.presets.length;
   }, [state.presets.length]);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const tabWasActiveRef = useRef(false);
   const dragDepthRef = useRef(0);
-  const sheetDragRef = useRef<{ startY: number; startHeight: number; moved: boolean } | null>(null);
-  const suppressHandleClickRef = useRef(false);
   const sheetOpen = !sheetLayout || sheet !== "closed" || sheetDragging;
 
   useEffect(() => {
     if (bodyRef.current) {
       bodyRef.current.scrollTop = 0;
     }
-  }, [state.activeTab]);
+  }, [bodyRef, state.activeTab]);
 
   useEffect(() => {
     if (!sheetLayout || sheet === "closed") {
@@ -132,7 +119,7 @@ export function AppShell({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [sheet, sheetLayout]);
+  }, [setSheet, sheet, sheetLayout]);
 
   const openFilePicker = () => fileInputRef.current?.click();
 
@@ -234,46 +221,7 @@ export function AppShell({
     }
   };
 
-  const handleSheetPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    sheetDragRef.current = {
-      startY: event.clientY,
-      startHeight: sheet === "closed" ? 0 : bodyRef.current?.getBoundingClientRect().height ?? 0,
-      moved: false,
-    };
-  };
-
-  const handleSheetPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = sheetDragRef.current;
-    const body = bodyRef.current;
-    if (!drag || !body) return;
-    const delta = drag.startY - event.clientY;
-    if (!drag.moved && Math.abs(delta) < DRAG_THRESHOLD_PX) return;
-    if (!drag.moved) {
-      drag.moved = true;
-      setSheetDragging(true);
-    }
-    const height = Math.min(window.innerHeight * 0.8, Math.max(0, drag.startHeight + delta));
-    body.style.height = `${height}px`;
-  };
-
-  const handleSheetPointerEnd = () => {
-    const drag = sheetDragRef.current;
-    sheetDragRef.current = null;
-    if (!drag?.moved) return;
-    const body = bodyRef.current;
-    const height = body?.getBoundingClientRect().height ?? 0;
-    if (body) body.style.height = "";
-    suppressHandleClickRef.current = true;
-    setSheetDragging(false);
-    setSheet(snapSheet(height));
-  };
-
   const handleSheetHandleClick = () => {
-    if (suppressHandleClickRef.current) {
-      suppressHandleClickRef.current = false;
-      return;
-    }
     setSheet((current) => (current === "half" ? "full" : current === "full" ? "closed" : "half"));
   };
 
@@ -378,6 +326,7 @@ export function AppShell({
         value={state.activeTab}
         onValueChange={(value) => dispatch({ type: "set-active-tab", activeTab: value as ActiveTab })}
       >
+        <div className="inspector__header" {...headerProps}>
         {sheetLayout && (
           <button
             type="button"
@@ -386,10 +335,6 @@ export function AppShell({
             aria-expanded={sheet !== "closed"}
             aria-controls="inspector-body"
             onClick={handleSheetHandleClick}
-            onPointerDown={handleSheetPointerDown}
-            onPointerMove={handleSheetPointerMove}
-            onPointerUp={handleSheetPointerEnd}
-            onPointerCancel={handleSheetPointerEnd}
           >
             <span aria-hidden="true" />
           </button>
@@ -409,7 +354,14 @@ export function AppShell({
             </Tabs.Trigger>
           ))}
         </Tabs.List>
-        <div id="inspector-body" className="inspector__body" ref={bodyRef} hidden={!sheetOpen}>
+        </div>
+        <div
+          id="inspector-body"
+          className="inspector__body"
+          ref={bodyRef}
+          hidden={!sheetOpen}
+          style={bodyHeight === undefined ? undefined : { height: bodyHeight }}
+        >
           <Tabs.Content value="light" className="inspector__panel">
             <LightPanel state={state} dispatch={dispatch} />
           </Tabs.Content>
