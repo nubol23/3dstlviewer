@@ -10,6 +10,7 @@ import {
   DEFAULT_RENDER_STYLE,
   DEFAULT_VALUE_STEP_COUNT,
   LIGHT_SETUPS,
+  MAX_PRESETS,
 } from "../state";
 import { DEFAULT_VALUE_RAMP } from "../lib/valueRamp";
 import {
@@ -182,13 +183,12 @@ describe("light reducer lock semantics", () => {
     expect(updatedLocked.light.intensity).toBe(state.light.intensity);
   });
 
-  it("does not reset light state when reset is triggered while locked", () => {
-    const state = createInitialState();
-    const lockedState = appReducer(state, { type: "toggle-lock" });
-    const resetLocked = appReducer(lockedState, { type: "reset-light" });
+  it("does not apply setups or color palettes while locked", () => {
+    const lockedState = appReducer(createInitialState(), { type: "toggle-lock" });
 
-    expect(resetLocked).toBe(lockedState);
-    expect(resetLocked.light).toEqual(lockedState.light);
+    expect(appReducer(lockedState, { type: "apply-light-setup", setupId: "dual" })).toBe(lockedState);
+    expect(appReducer(lockedState, { type: "set-key-color-preset", preset: "warm" })).toBe(lockedState);
+    expect(appReducer(lockedState, { type: "set-fill-palette", palette: "cool" })).toBe(lockedState);
   });
 
   it("does not apply preset while locked", () => {
@@ -202,18 +202,6 @@ describe("light reducer lock semantics", () => {
 
     expect(loaded).toBe(lockedState);
     expect(loaded.light).toEqual(lockedState.light);
-  });
-
-  it("does not change the lighting mode while locked", () => {
-    const state = createInitialState();
-    const lockedState = appReducer(state, { type: "toggle-lock" });
-    const updatedLocked = appReducer(lockedState, {
-      type: "set-lighting-mode",
-      lightingMode: "broad-zenithal",
-    });
-
-    expect(updatedLocked).toBe(lockedState);
-    expect(updatedLocked.lightingMode).toBe("directional");
   });
 });
 
@@ -330,9 +318,10 @@ describe("reducer fail-fast validation", () => {
     expect(() =>
       appReducer(state, { type: "set-value-step-count", valueStepCount: 9 as never }),
     ).toThrow("Unsupported value step count");
-    expect(() =>
-      appReducer(state, { type: "set-lighting-mode", lightingMode: "bad" as never }),
-    ).toThrow("Unsupported lighting mode");
+    expect(() => appReducer(state, { type: "set-key-color-preset", preset: "green" as never })).toThrow("Unsupported key color preset");
+    expect(() => appReducer(state, { type: "set-fill-palette", palette: "red" as never })).toThrow("Unsupported fill palette");
+    expect(() => appReducer(state, { type: "rename-preset", presetId: "missing", name: "A" })).toThrow("Unknown preset");
+    expect(() => appReducer(state, { type: "delete-preset", presetId: "missing" })).toThrow("Unknown preset");
     expect(() => appReducer(state, { type: "apply-light-setup", setupId: "missing" })).toThrow(
       "Unsupported light setup",
     );
@@ -430,7 +419,7 @@ describe("persistence codec", () => {
     });
     state = appReducer(state, { type: "set-render-style", renderStyle: "stepped" });
     state = appReducer(state, { type: "set-value-step-count", valueStepCount: 8 });
-    state = appReducer(state, { type: "set-lighting-mode", lightingMode: "broad-zenithal" });
+    state = appReducer(state, { type: "apply-light-setup", setupId: "broad-zenithal" });
     const withPreset = appReducer(state, { type: "save-preset" });
     const changed = appReducer(withPreset, {
       type: "set-render-style",
@@ -458,5 +447,84 @@ describe("persistence codec", () => {
     expect(state.light.elevationDeg).toBe(90);
     expect(state.light.environmentIntensity).toBe(0.18);
     expect(state.lightingMode).toBe("zenithal");
+  });
+});
+
+describe("light colors", () => {
+  it("presents warm and cool choices in color and keeps grayscale when returning to white", () => {
+    let state = appReducer(createInitialState(), { type: "set-key-color-preset", preset: "warm" });
+    expect(state.light.keyColor).toBe("#ffe2b3");
+    expect(state.valueRamp.grayscale).toBe(false);
+
+    state = appReducer(state, { type: "set-value-ramp", patch: { grayscale: true } });
+    state = appReducer(state, { type: "set-key-color-preset", preset: "white" });
+    expect(state.light.keyColor).toBe("#ffffff");
+    expect(state.valueRamp.grayscale).toBe(true);
+
+    state = appReducer(state, { type: "set-fill-palette", palette: "cool" });
+    expect(state.light.secondaryColor).toBe("#a8c7ef");
+    expect(state.light.environmentColor).toBe("#b6c9e3");
+    expect(state.floor.color).toBe("#78899f");
+    expect(state.valueRamp.grayscale).toBe(false);
+    expect(state.light.keyColor).toBe("#ffffff");
+  });
+
+  it("returns every color to neutral when a setup is chosen, keeping floor reflectance", () => {
+    let state = appReducer(createInitialState(), { type: "set-key-color-preset", preset: "warm" });
+    state = appReducer(state, { type: "set-fill-palette", palette: "cool" });
+    state = appReducer(state, { type: "set-floor", patch: { reflectance: 0.8 } });
+    state = appReducer(state, { type: "apply-light-setup", setupId: "zenithal" });
+
+    expect(state.light.keyColor).toBe("#ffffff");
+    expect(state.light.secondaryColor).toBe("#ffffff");
+    expect(state.light.environmentColor).toBe("#ffffff");
+    expect(state.floor).toEqual({ color: "#888888", reflectance: 0.8 });
+  });
+});
+
+describe("value settings reset", () => {
+  it("restores default value settings with thresholds for the current band count", () => {
+    let state = appReducer(createInitialState(), { type: "set-value-step-count", valueStepCount: 4 });
+    state = appReducer(state, { type: "set-value-ramp", patch: { contrast: 2.8, exposure: 1.6, grayscale: false, thresholds: [0.3, 0.5, 0.7] } });
+    state = appReducer(state, { type: "reset-value-ramp" });
+
+    expect(state.valueRamp).toEqual({ ...DEFAULT_VALUE_RAMP, thresholds: [0.25, 0.5, 0.75] });
+    expect(state.valueStepCount).toBe(4);
+  });
+});
+
+describe("preset management", () => {
+  it("names presets uniquely, renames, deletes and restores them in place", () => {
+    let state = createInitialState();
+    for (let i = 0; i < 3; i++) state = appReducer(state, { type: "save-preset" });
+    expect(state.presets.map((preset) => preset.name)).toEqual(["Preset 3", "Preset 2", "Preset 1"]);
+
+    const middle = state.presets[1];
+    state = appReducer(state, { type: "delete-preset", presetId: middle.id });
+    state = appReducer(state, { type: "save-preset" });
+    expect(state.presets.map((preset) => preset.name)).toEqual(["Preset 4", "Preset 3", "Preset 1"]);
+
+    state = appReducer(state, { type: "rename-preset", presetId: state.presets[0].id, name: "  Rim test  " });
+    expect(state.presets[0].name).toBe("Rim test");
+    expect(() => appReducer(state, { type: "rename-preset", presetId: state.presets[0].id, name: "   " })).toThrow("Invalid preset name");
+
+    const removed = state.presets[1];
+    state = appReducer(state, { type: "delete-preset", presetId: removed.id });
+    state = appReducer(state, { type: "restore-preset", preset: removed, index: 1 });
+    expect(state.presets.map((preset) => preset.name)).toEqual(["Rim test", "Preset 3", "Preset 1"]);
+  });
+
+  it("refuses to save past the preset limit instead of dropping the oldest", () => {
+    let state = createInitialState();
+    for (let i = 0; i < MAX_PRESETS; i++) state = appReducer(state, { type: "save-preset" });
+
+    expect(state.presets).toHaveLength(MAX_PRESETS);
+    expect(() => appReducer(state, { type: "save-preset" })).toThrow(`Cannot save more than ${MAX_PRESETS} presets`);
+  });
+
+  it("saves presets while the light is locked", () => {
+    const locked = appReducer(createInitialState(), { type: "toggle-lock" });
+
+    expect(appReducer(locked, { type: "save-preset" }).presets).toHaveLength(1);
   });
 });

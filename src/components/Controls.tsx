@@ -1,7 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useId } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
-import * as Slider from "@radix-ui/react-slider";
 
 type RangeControlProps = {
   label: string;
@@ -10,7 +9,6 @@ type RangeControlProps = {
   max: number;
   step: number;
   onChange: (next: number) => void;
-  suffix?: string;
   disabled?: boolean;
   formatValue?: (value: number) => string;
   testId?: string;
@@ -23,7 +21,6 @@ export function RangeControl({
   max,
   step,
   onChange,
-  suffix,
   disabled,
   formatValue,
   testId,
@@ -33,57 +30,87 @@ export function RangeControl({
   }
 
   const inputId = useId();
-  const display = formatValue ? formatValue(value) : `${value.toFixed(suffix === "m" ? 1 : 2)}${suffix ?? ""}`;
+  const inactive = disabled || max === min;
+  const display = formatValue ? formatValue(value) : value.toFixed(2);
   const fillPercent = max === min ? 0 : Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
-  const inputStyle = { "--range-fill": `${fillPercent}%` } as CSSProperties;
-  const handleSliderChange = (nextValue: number[]) => {
-    const [next] = nextValue;
-    if (next === undefined) {
-      throw new Error(`Invalid range control "${label}": slider emitted no value`);
-    }
-
-    onChange(next);
-  };
 
   return (
-    <div className="slider-block">
-      <label className="slider-block__label" htmlFor={inputId}>
-        <span>{label}</span>
-        <span>{display}</span>
-      </label>
-      <Slider.Root
-        className="slider-block__input"
+    <div className="range" data-disabled={inactive || undefined}>
+      <div className="range__head">
+        <label htmlFor={inputId}>{label}</label>
+        <output htmlFor={inputId}>{display}</output>
+      </div>
+      <input
+        id={inputId}
+        className="range__input"
+        type="range"
+        data-testid={testId}
         min={min}
         max={max}
         step={step}
-        value={[value]}
-        style={inputStyle}
-        disabled={disabled || max === min}
-        onValueChange={handleSliderChange}
-      >
-        <Slider.Track className="slider-block__track">
-          <Slider.Range className="slider-block__range" />
-        </Slider.Track>
-        <span aria-hidden="true" className="slider-block__thumb" />
+        value={value}
+        style={{ "--range-fill": `${fillPercent}%` } as CSSProperties}
+        onChange={(event) => onChange(Number(event.target.value))}
+        disabled={inactive}
+      />
+    </div>
+  );
+}
+
+type SwitchControlProps = {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  hint?: string;
+  className?: string;
+};
+
+export function SwitchControl({ label, checked, onChange, disabled, hint, className }: SwitchControlProps) {
+  const hintId = useId();
+
+  return (
+    <div className={`switch${className ? ` ${className}` : ""}`} data-disabled={disabled || undefined}>
+      <label className="switch__row">
+        <span className="switch__label">{label}</span>
         <input
-          id={inputId}
-          aria-label={label}
-          className="slider-block__native-input"
-          type="range"
-          data-testid={testId}
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          style={inputStyle}
-          onChange={(event) => onChange(Number(event.target.value))}
-          disabled={disabled || max === min}
+          className="switch__input"
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          disabled={disabled}
+          aria-describedby={hint ? hintId : undefined}
+          onChange={(event) => onChange(event.target.checked)}
         />
-      </Slider.Root>
-      <span className="slider-block__ticks">
-        <span>{min}</span>
-        <span>{max}</span>
-      </span>
+        <span className="switch__track" aria-hidden="true" />
+      </label>
+      {hint && <p id={hintId} className="hint">{hint}</p>}
+    </div>
+  );
+}
+
+type ColorControlProps = {
+  label: string;
+  value: string;
+  onChange: (color: string) => void;
+  disabled?: boolean;
+};
+
+export function ColorControl({ label, value, onChange, disabled }: ColorControlProps) {
+  const inputId = useId();
+
+  return (
+    <div className="color-field" data-disabled={disabled || undefined}>
+      <label htmlFor={inputId}>{label}</label>
+      <span className="color-field__value" aria-hidden="true">{value.toUpperCase()}</span>
+      <input
+        id={inputId}
+        className="color-field__input"
+        type="color"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </div>
   );
 }
@@ -91,6 +118,7 @@ export function RangeControl({
 type SegmentOption<T extends string> = {
   value: T;
   label: string;
+  content?: ReactNode;
 };
 
 type SegmentedControlProps<T extends string> = {
@@ -98,10 +126,7 @@ type SegmentedControlProps<T extends string> = {
   value: T;
   onChange: (next: T) => void;
   ariaLabel: string;
-  disabled?: boolean;
-  name?: string;
-  idPrefix?: string;
-  testId?: string;
+  className?: string;
 };
 
 export function SegmentedControl<T extends string>({
@@ -109,64 +134,46 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   ariaLabel,
-  disabled,
-  name,
-  idPrefix,
-  testId,
+  className,
 }: SegmentedControlProps<T>) {
-  const generatedName = useId();
-  const radioName = name ?? `value-mode-${generatedName}`;
-  const radioIdPrefix = idPrefix ?? `value-mode-option-${generatedName}`;
-
   return (
     <RadioGroup.Root
-      className="segmented"
+      className={`segmented${className ? ` ${className}` : ""}`}
       aria-label={ariaLabel}
-      data-testid={testId}
-      disabled={disabled}
-      name={radioName}
       orientation="horizontal"
       value={value}
       onValueChange={(nextValue) => onChange(nextValue as T)}
     >
-      {options.map((option) => {
-        const active = option.value === value;
-        const optionId = `${radioIdPrefix}-${option.value}`;
-        return (
-          <label
-            aria-disabled={disabled || undefined}
-            className={`segment-btn${active ? " is-active" : ""}${disabled ? " is-disabled" : ""}`}
-            htmlFor={optionId}
-            key={option.value}
-          >
-            <RadioGroup.Item
-              id={optionId}
-              aria-label={option.label}
-              className="segment-btn__item"
-              value={option.value}
-              disabled={disabled}
-            >
-              {option.label}
-            </RadioGroup.Item>
-          </label>
-        );
-      })}
+      {options.map((option) => (
+        <RadioGroup.Item
+          key={option.value}
+          className="segmented__item"
+          aria-label={option.label}
+          value={option.value}
+        >
+          {option.content ?? option.label}
+        </RadioGroup.Item>
+      ))}
     </RadioGroup.Root>
   );
 }
 
-type ActionButtonProps = {
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
+type ControlSectionProps = {
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
 };
 
-export function ActionButton({ icon, label, onClick, disabled }: ActionButtonProps) {
+export function ControlSection({ title, actions, children }: ControlSectionProps) {
+  const headingId = useId();
+
   return (
-    <button className="action-btn" type="button" onClick={onClick} disabled={disabled}>
-      <span>{icon}</span>
-      <span>{label}</span>
-    </button>
+    <section className="control-section" aria-labelledby={headingId}>
+      <header className="control-section__head">
+        <h3 id={headingId}>{title}</h3>
+        {actions && <div className="control-section__actions">{actions}</div>}
+      </header>
+      <div className="control-section__body">{children}</div>
+    </section>
   );
 }

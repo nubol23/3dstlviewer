@@ -204,3 +204,37 @@ changing the secondary/environment/floor colors. Use the existing key-color
 field for selection, persistence and both renderers, retaining custom color
 editing and manual grayscale comparison. Default setups remain white. This
 shortcut adds no stored field or schema reset.
+
+## Control revamp
+
+The control layer was redesigned without changing the rendering contract above.
+The Warm Key Light checkbox and the Cool Blue Fill and Monochrome buttons are
+replaced by one Colors section shown in every setup. The key light offers White,
+Warm (#FFE2B3) or a custom color. The fill offers Neutral (white second light and
+sky, #888888 floor), Cool blue (the same muted blue palette as before) or custom
+second-light, environment and floor colors. Choosing Warm or Cool blue turns off
+Neutral Grayscale, as before; Neutral Grayscale remains the only grayscale
+control. Choosing a lighting setup now loads its default light and returns every
+color, floor color included, to white and neutral. Floor reflectance is kept.
+Presets can be renamed and deleted (with undo), saving stops at eight instead of
+dropping the oldest, and presets can be saved while the light is locked. Light
+colors, angles, intensities and the stored schema are unchanged.
+Band boundaries are edited as handles on the stepped ramp, one percent apart at
+minimum, replacing the per-boundary sliders; their stored values are unchanged.
+Refinement is started, followed and stopped from a viewport control with the
+same phases and budget as before.
+
+## Mobile render quality
+
+Phones and tablets now render the same study as desktop: 2048/1024 shadow maps,
+16 PCSS samples, Medium half-resolution AO and Medium SMAA. Touch screens, and
+any window up to 1024 px wide, render at the device pixel ratio capped at 2
+instead of 1; wider desktop windows keep their 1.5 cap. While
+the user orbits or changes a light, the library's performance regression lowers
+touch rendering to a 1x ratio and restores 2x 400 ms after the last change, so the
+image being studied is always full quality. Camera transitions and resizes do not
+regress, which keeps a resting view from cycling between ratios. Refinement remains desktop-only. On a 390 px
+phone viewport this removes the blur and shadow speckle of the previous mobile
+budget; the resting image matched the desktop budget pixel for pixel in Chrome
+emulation. Frame cost on a physical phone is not measured yet.
+

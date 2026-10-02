@@ -19,7 +19,6 @@ describe("Controls accessibility", () => {
         options={valueOptions}
         value="stepped"
         onChange={onChange}
-        name="test-value-mode"
         ariaLabel="Value rendering"
       />,
     );

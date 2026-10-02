@@ -13,20 +13,33 @@ import type { AppState } from "../types";
 export type ViewerCameraApi = {
   fitToView: () => void;
   resetView: () => void;
+  refine: () => void;
+  stopRefinement: () => void;
 };
 
 type ViewerCanvasProps = {
   state: AppState;
+  onRefinementChange: (status: RefinementStatus) => void;
 };
 
 const { ACTION } = CameraControlsImpl;
 const DEFAULT_TARGET = new Vector3(0, 1.2, 0);
 const DEFAULT_POSITION = new Vector3(4.2, 2.8, 5.2);
+// Canvas re-applies its dpr prop on every render, so the lowered ratio while
+// moving is expressed through that prop rather than set behind its back.
+// Touch screens render the same study as desktop at up to 2x, and drop to 1x
+// only while the user orbits or edits a light.
+const TOUCH_DPR: [number, number] = [1, 2];
+const TOUCH_MOVING_DPR = 1;
+const DESKTOP_DPR: [number, number] = [1, 1.5];
+// A longer restore delay than R3F's 200 ms default keeps slow phones from
+// flickering between ratios when a single frame takes longer than the delay.
+const PERFORMANCE = { debounce: 400 };
 
-export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(function ViewerCanvas({ state }, ref) {
+export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(function ViewerCanvas({ state, onRefinementChange }, ref) {
   const controlsRef = useRef<CameraControlsType | null>(null);
   const refinementRef = useRef<RefinementApi | null>(null);
-  const [refinement, setRefinement] = useState<RefinementStatus>({ available: false, phase: "preview", samples: 0, progress: 0 });
+  const [moving, setMoving] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 1024px), (pointer: coarse)").matches);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 1024px), (pointer: coarse)");
@@ -58,21 +71,24 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
           )
           .then(() => controls.saveState());
       },
+      refine() {
+        controlsRef.current?.stop();
+        refinementRef.current?.refine();
+      },
+      stopRefinement() {
+        refinementRef.current?.stop();
+      },
     }),
     [state.model?.fit.fittedBounds],
   );
 
   return (
     <div className="viewer-shell" data-testid="viewer-shell">
-      {refinement.available && <div className="refinement-controls">
-        <span role="status" aria-live="polite">{refinement.phase === "preparing" ? `Preparing scene · ${Math.round(refinement.progress * 100)}%` : refinement.phase === "compiling" ? "Compiling shaders…" : refinement.phase === "sampling" ? `Refining · ${Math.floor(refinement.samples)}/64 samples` : refinement.phase === "done" ? `Refined · ${Math.floor(refinement.samples)} samples · budget reached` : refinement.phase === "error" ? `Refinement failed: ${refinement.message}` : "Preview"}</span>
-        {["preview", "done", "error"].includes(refinement.phase) && <button type="button" disabled={!state.model} onClick={() => { controlsRef.current?.stop(); refinementRef.current?.refine(); }}>Refine Lighting</button>}
-        {!["preview", "error"].includes(refinement.phase) && <button type="button" onClick={() => refinementRef.current?.stop()}>{refinement.phase === "done" ? "Back to Preview" : "Stop Refinement"}</button>}
-      </div>}
       <Canvas
         shadows
         frameloop="demand"
-        dpr={mobile ? 1 : [1, 1.5]}
+        dpr={mobile ? (moving ? TOUCH_MOVING_DPR : TOUCH_DPR) : DESKTOP_DPR}
+        performance={PERFORMANCE}
         camera={{ position: DEFAULT_POSITION.toArray(), fov: 38, near: 0.01, far: 100 }}
         gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         onCreated={({ gl, scene }) => {
@@ -82,17 +98,17 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
           scene.background = new Color("#c9c9c6");
         }}
       >
-        <CameraRig controlsRef={controlsRef} fittedBounds={state.model?.fit.fittedBounds ?? null} />
+        <CameraRig controlsRef={controlsRef} fittedBounds={state.model?.fit.fittedBounds ?? null} regress={mobile} />
+        {mobile && <MotionQuality state={state} onMovingChange={setMoving} />}
         <SceneLighting
           light={state.light}
           lightingMode={state.lightingMode}
           modelFit={state.model?.fit ?? null}
-          mobile={mobile}
           floor={state.floor}
         />
         <Floor floor={state.floor} modelFit={state.model?.fit ?? null} />
         <StlModel model={state.model} />
-        <StudyPipeline ref={refinementRef} state={state} mobile={mobile} onStatus={setRefinement} />
+        <StudyPipeline ref={refinementRef} state={state} mobile={mobile} onStatus={onRefinementChange} />
         {!state.model && <EmptyStudyForm />}
       </Canvas>
     </div>
@@ -102,10 +118,37 @@ export const ViewerCanvas = forwardRef<ViewerCameraApi, ViewerCanvasProps>(funct
 type CameraRigProps = {
   controlsRef: MutableRefObject<CameraControlsType | null>;
   fittedBounds: Box3 | null;
+  regress: boolean;
 };
 
-function CameraRig({ controlsRef, fittedBounds }: CameraRigProps) {
+type MotionQualityProps = {
+  state: AppState;
+  onMovingChange: (moving: boolean) => void;
+};
+
+// R3F lowers performance.current while the camera or light keeps changing and
+// restores it after its debounce; the viewer follows that signal.
+function MotionQuality({ state, onMovingChange }: MotionQualityProps) {
+  const regress = useThree((three) => three.performance.regress);
+  const current = useThree((three) => three.performance.current);
+  const max = useThree((three) => three.performance.max);
+  const lightChangesRef = useRef(0);
+  useEffect(() => {
+    lightChangesRef.current += 1;
+    if (lightChangesRef.current > 1) regress();
+  }, [regress, state.light, state.lightingMode, state.floor]);
+  useEffect(() => {
+    onMovingChange(current < max);
+  }, [current, max, onMovingChange]);
+  return null;
+}
+
+function CameraRig({ controlsRef, fittedBounds, regress }: CameraRigProps) {
   const { camera } = useThree();
+  const performance = useThree((three) => three.performance);
+  // Only user drags lower resolution. drei's regress flag also reacts to camera
+  // updates, and a resolution change itself updates the camera, which loops.
+  const regressOnControl = regress ? () => performance.regress() : undefined;
 
   useEffect(() => {
     const controls = controlsRef.current;
@@ -137,6 +180,8 @@ function CameraRig({ controlsRef, fittedBounds }: CameraRigProps) {
     <CameraControls
       ref={controlsRef}
       makeDefault
+      onControlStart={regressOnControl}
+      onControl={regressOnControl}
       mouseButtons={{
         left: ACTION.ROTATE,
         middle: ACTION.DOLLY,

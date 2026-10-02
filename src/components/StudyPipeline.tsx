@@ -9,11 +9,13 @@ import { ValueStudyEffect } from "../lib/ValueStudyEffect";
 
 export type RefinementStatus = { available: boolean; phase: "preview" | "preparing" | "compiling" | "sampling" | "done" | "error"; samples: number; progress: number; message?: string };
 export type RefinementApi = { refine: () => void; stop: () => void };
+export const REFINEMENT_SAMPLE_BUDGET = 64;
 type Session = ReturnType<typeof createRefinement>;
 type Props = { state: AppState; mobile: boolean; onStatus: (status: RefinementStatus) => void };
 
 export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipeline({ state, mobile, onStatus }, ref) {
   const { gl, scene, camera, size, invalidate } = useThree();
+  const dpr = useThree((three) => three.viewport.dpr);
   const context = gl.getContext();
   const debugInfo = context.getExtension("WEBGL_debug_renderer_info");
   const driver = debugInfo ? String(context.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : "";
@@ -85,7 +87,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
     gl.toneMapping = NoToneMapping;
     const composer = new EffectComposer(gl, { frameBufferType: HalfFloatType, multisampling: 0 });
     const ao = new N8AOPostPass(scene, camera, 1, 1);
-    ao.setQualityMode(mobile ? "Low" : "Medium");
+    ao.setQualityMode("Medium");
     ao.configuration.halfRes = true; ao.configuration.gammaCorrection = false;
     ao.configuration.aoRadius = 0.12; ao.configuration.intensity = 1.4;
     ao.configuration.distanceFalloff = 1; ao.configuration.accumulate = false;
@@ -98,7 +100,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
     composer.addPass(replacement);
     composer.addPass(new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX })));
     composer.addPass(new EffectPass(camera, values));
-    composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: mobile ? SMAAPreset.LOW : SMAAPreset.MEDIUM })));
+    composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM })));
     pipeline.current = { composer, values, ao, replacement, texture };
     invalidate();
     return () => {
@@ -109,13 +111,14 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
       }
       pipeline.current = null; composer.dispose();
     };
-  }, [gl, scene, camera, mobile, invalidate]);
+  }, [gl, scene, camera, invalidate]);
   useEffect(() => {
     pipeline.current?.composer.setSize(size.width, size.height);
     preview();
     // preview mutates renderer resources; its inputs are the resize/capability boundary.
+    // The composer reads the renderer pixel ratio, so a ratio change also resizes it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, mobile]);
+  }, [size, dpr, mobile]);
   useEffect(() => {
     preview(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +131,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
     gl.toneMappingExposure = state.valueRamp.exposure;
     pipeline.current?.values.configure(state.valueRamp, state.renderStyle, state.valueStepCount);
     invalidate();
-  }, [state.valueRamp, state.renderStyle, state.valueStepCount, gl, invalidate, mobile]);
+  }, [state.valueRamp, state.renderStyle, state.valueStepCount, gl, invalidate]);
   useFrame((_, delta) => {
     if (document.hidden) {
       if (job.current.phase === "sampling" || job.current.phase === "compiling") preview();
@@ -154,7 +157,7 @@ export const StudyPipeline = forwardRef<RefinementApi, Props>(function StudyPipe
               resources.texture.texture = active.tracer.target.texture;
               resources.replacement.enabled = true; resources.ao.enabled = false; active.denoise.enabled = true;
             }
-            const finished = samples >= 64 || now - job.current.sampleStart >= 5000;
+            const finished = samples >= REFINEMENT_SAMPLE_BUDGET || now - job.current.sampleStart >= 5000;
             if (finished && samples < active.tracer.minSamples) {
               preview();
               report("error", samples, 0, "The time budget ended before a complete sample. Preview remains active.");
