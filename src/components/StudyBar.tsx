@@ -5,11 +5,22 @@ import { createValueRampColors } from "../lib/valueRamp";
 import { SegmentedControl } from "./Controls";
 
 const VALUE_STEP_COUNTS: readonly ValueStepCount[] = [3, 4, 5, 6, 7, 8];
-type StudyOption = "smooth" | `${ValueStepCount}`;
+export type StudyOption = "smooth" | `${ValueStepCount}`;
 const STUDY_OPTIONS: readonly { value: StudyOption; label: string; content: string }[] = [
   { value: "smooth", label: "Smooth", content: "Smooth" },
   ...VALUE_STEP_COUNTS.map((count) => ({ value: `${count}` as StudyOption, label: `${count} values`, content: `${count}` })),
 ];
+
+export function studyOptionActions(state: Pick<AppState, "renderStyle" | "valueStepCount">, option: StudyOption): AppAction[] {
+  if (option === "smooth") {
+    return state.renderStyle === "smooth" ? [] : [{ type: "set-render-style", renderStyle: "smooth" }];
+  }
+  const count = Number(option) as ValueStepCount;
+  const actions: AppAction[] = [];
+  if (state.renderStyle !== "stepped") actions.push({ type: "set-render-style", renderStyle: "stepped" });
+  if (count !== state.valueStepCount) actions.push({ type: "set-value-step-count", valueStepCount: count });
+  return actions;
+}
 
 type StudyBarProps = {
   state: AppState;
@@ -24,15 +35,7 @@ export function StudyBar({ state, dispatch }: StudyBarProps) {
     [smooth, valueRamp, valueStepCount],
   );
 
-  const select = (option: StudyOption) => {
-    if (option === "smooth") {
-      dispatch({ type: "set-render-style", renderStyle: "smooth" });
-      return;
-    }
-    const count = Number(option) as ValueStepCount;
-    if (renderStyle !== "stepped") dispatch({ type: "set-render-style", renderStyle: "stepped" });
-    if (count !== valueStepCount) dispatch({ type: "set-value-step-count", valueStepCount: count });
-  };
+  const select = (option: StudyOption) => studyOptionActions(state, option).forEach(dispatch);
 
   return (
     <div className="study-bar" data-testid="value-study-control">

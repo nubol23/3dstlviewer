@@ -1,11 +1,14 @@
 import type { ActiveTab, AppAction, AppState, OrientationAxis } from "../types";
-import { Bookmark, Box, Contrast, FolderOpen, PanelRightClose, PanelRightOpen, RotateCcw, Scan, Sun } from "lucide-react";
+import { Bookmark, Box, CircleHelp, Contrast, FolderOpen, LoaderCircle, PanelRightClose, PanelRightOpen, RotateCcw, Scan, Sun } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { toast } from "sonner";
 import type { ChangeEvent, DragEvent, Dispatch, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { HelpDialog } from "./HelpDialog";
 import { IconButton } from "./IconButton";
-import { StudyBar } from "./StudyBar";
+import { RefineControl } from "./RefineControl";
+import { StudyBar, studyOptionActions, type StudyOption } from "./StudyBar";
+import type { RefinementStatus } from "./ViewerCanvas";
 import { LightPanel } from "./panels/LightPanel";
 import { PresetsPanel } from "./panels/PresetsPanel";
 import { ModelPanel } from "./panels/ModelPanel";
@@ -24,16 +27,35 @@ const TABS: Array<{ value: ActiveTab; label: string; icon: ReactNode }> = [
 
 const DRAG_THRESHOLD_PX = 6;
 
+export type LoadProgress = {
+  fileName: string;
+  phase: string;
+  cancel: () => void;
+};
+
 type AppShellProps = {
   state: AppState;
   dispatch: Dispatch<AppAction>;
+  loadProgress: LoadProgress | null;
+  refinement: RefinementStatus;
+  canUndoOrientation: boolean;
   onFileSelected: (file: File) => void;
   onFitToView: () => void;
   onResetView: () => void;
+  onRefine: () => void;
+  onStopRefinement: () => void;
   onRotateModel: (axis: OrientationAxis, quarterTurns: number) => void;
+  onUndoOrientation: () => void;
   onResetModelOrientation: () => void;
   children: ReactNode;
 };
+
+const STUDY_SHORTCUTS: Record<string, StudyOption> = { s: "smooth", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8" };
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
+}
 
 function useMediaQuery(query: string): boolean {
   const subscribe = useCallback((onChange: () => void) => {
@@ -58,10 +80,16 @@ function hasFiles(event: DragEvent<HTMLElement>): boolean {
 export function AppShell({
   state,
   dispatch,
+  loadProgress,
+  refinement,
+  canUndoOrientation,
   onFileSelected,
   onFitToView,
   onResetView,
+  onRefine,
+  onStopRefinement,
   onRotateModel,
+  onUndoOrientation,
   onResetModelOrientation,
   children,
 }: AppShellProps) {
@@ -71,6 +99,7 @@ export function AppShell({
   const [sheetDragging, setSheetDragging] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const helpRef = useRef<HTMLDialogElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const tabWasActiveRef = useRef(false);
   const dragDepthRef = useRef(0);
@@ -100,6 +129,38 @@ export function AppShell({
   }, [sheet, sheetLayout]);
 
   const openFilePicker = () => fileInputRef.current?.click();
+  const openHelp = () => helpRef.current?.showModal();
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target) || helpRef.current?.open) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const study = STUDY_SHORTCUTS[key];
+      if (study) {
+        studyOptionActions(state, study).forEach(dispatch);
+      } else if (key === "o") {
+        fileInputRef.current?.click();
+      } else if (key === "f" && state.model) {
+        onFitToView();
+      } else if (key === "r") {
+        onResetView();
+      } else if (key === "g") {
+        dispatch({ type: "set-value-ramp", patch: { grayscale: !state.valueRamp.grayscale } });
+      } else if (key === "l") {
+        dispatch({ type: "toggle-lock" });
+      } else if (key === "?") {
+        helpRef.current?.showModal();
+      } else {
+        return;
+      }
+      event.preventDefault();
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [dispatch, onFitToView, onResetView, state]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -229,6 +290,7 @@ export function AppShell({
             aria-hidden="true"
             onChange={handleFileChange}
           />
+          <IconButton icon={<CircleHelp size={18} />} label="Help and shortcuts" onClick={openHelp} />
           <button type="button" className="btn btn--primary app-bar__open" onClick={openFilePicker} aria-busy={state.isLoading}>
             <FolderOpen size={16} aria-hidden="true" />
             <span className="app-bar__open-label">Open STL</span>
@@ -253,10 +315,25 @@ export function AppShell({
             <IconButton icon={<RotateCcw size={18} />} label="Reset View" onClick={onResetView} data-testid="reset-view-button" />
           </div>
         )}
-        {!state.model && !state.isLoading && (
+        {refinement.available && (
+          <RefineControl status={refinement} hasModel={Boolean(state.model)} onRefine={onRefine} onStop={onStopRefinement} />
+        )}
+        {loadProgress && (
+          <div className="empty-card load-card" role="status" aria-live="polite">
+            <div className="load-card__row">
+              <LoaderCircle className="load-card__spinner" size={18} aria-hidden="true" />
+              <h2 className="load-card__name" title={loadProgress.fileName}>Opening {loadProgress.fileName}</h2>
+            </div>
+            <p>{loadProgress.phase}…</p>
+            <span className="load-card__bar" aria-hidden="true" />
+            <button type="button" className="btn btn--solid" onClick={loadProgress.cancel}>Cancel</button>
+          </div>
+        )}
+        {!state.model && !loadProgress && (
           <div className="empty-card">
             <h2>Open an STL to study its values</h2>
-            <p>Drop a file anywhere, or choose one. It is read on this device and never uploaded.</p>
+            <p>Drop a file anywhere, or open one. It is read on this device and never uploaded.</p>
+            <p className="empty-card__gestures">Drag to orbit · scroll or pinch to zoom · right-drag or two fingers to pan</p>
             <button type="button" className="btn btn--primary" onClick={openFilePicker}>
               <FolderOpen size={16} aria-hidden="true" />
               <span>Open STL</span>
@@ -321,7 +398,9 @@ export function AppShell({
           <Tabs.Content value="model" className="inspector__panel">
             <ModelPanel
               model={state.model}
+              canUndo={canUndoOrientation}
               onRotateModel={onRotateModel}
+              onUndo={onUndoOrientation}
               onResetModelOrientation={onResetModelOrientation}
             />
           </Tabs.Content>
@@ -330,6 +409,7 @@ export function AppShell({
           </Tabs.Content>
         </div>
       </Tabs.Root>
+      <HelpDialog ref={helpRef} />
     </div>
   );
 }

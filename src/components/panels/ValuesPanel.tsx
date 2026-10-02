@@ -1,6 +1,9 @@
-import type { Dispatch } from "react";
+import type { CSSProperties, Dispatch } from "react";
+import { useMemo } from "react";
+import * as Slider from "@radix-ui/react-slider";
 import { RotateCcw } from "lucide-react";
 import type { AppAction, AppState, ValueRampState } from "../../types";
+import { createValueRampColors } from "../../lib/valueRamp";
 import { ControlSection, RangeControl, SwitchControl } from "../Controls";
 import { IconButton } from "../IconButton";
 
@@ -11,11 +14,52 @@ type ValuesPanelProps = {
 
 const signed = (value: number) => (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2));
 
+function bandGradient(colors: string[], thresholds: number[]): string {
+  const edges = [0, ...thresholds, 1].map((edge) => `${(edge * 100).toFixed(2)}%`);
+  const stops = colors.map((color, index) => `${color} ${edges[index]} ${edges[index + 1]}`);
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
+function ThresholdEditor({ valueRamp, count, onChange }: { valueRamp: ValueRampState; count: number; onChange: (thresholds: number[]) => void }) {
+  const colors = useMemo(() => createValueRampColors(valueRamp, count), [valueRamp, count]);
+  const thresholds = valueRamp.thresholds;
+
+  return (
+    <div className="threshold-editor">
+      <Slider.Root
+        className="threshold-editor__slider"
+        min={1}
+        max={99}
+        step={1}
+        minStepsBetweenThumbs={1}
+        value={thresholds.map((threshold) => Math.round(threshold * 100))}
+        onValueChange={(next) => onChange(next.map((percent) => percent / 100))}
+        aria-label="Band boundaries"
+        data-testid="threshold-editor"
+      >
+        <Slider.Track
+          className="threshold-editor__track"
+          style={{ "--bands": bandGradient(colors, thresholds) } as CSSProperties}
+        />
+        {thresholds.map((threshold, index) => (
+          <Slider.Thumb
+            key={index}
+            className="threshold-editor__thumb"
+            aria-label={`Boundary ${index + 1}`}
+            aria-valuetext={threshold.toFixed(2)}
+          />
+        ))}
+      </Slider.Root>
+      <p className="threshold-editor__values" aria-hidden="true">
+        {thresholds.map((threshold) => threshold.toFixed(2)).join(" · ")}
+      </p>
+    </div>
+  );
+}
+
 export function ValuesPanel({ state, dispatch }: ValuesPanelProps) {
   const { valueRamp, renderStyle } = state;
   const setValueRamp = (patch: Partial<ValueRampState>) => dispatch({ type: "set-value-ramp", patch });
-  const thresholds = valueRamp.thresholds;
-
   return (
     <div className="panel-stack" data-testid="value-ramp-control">
       <ControlSection
@@ -91,25 +135,18 @@ export function ValuesPanel({ state, dispatch }: ValuesPanelProps) {
           testId="band-bias-slider"
           formatValue={signed}
         />
-        {renderStyle === "stepped" && (
-          <details className="disclosure">
-            <summary>Band thresholds</summary>
-            <div className="disclosure__body">
-              {thresholds.map((threshold, index) => (
-                <RangeControl
-                  key={index}
-                  label={`Boundary ${index + 1}`}
-                  min={index ? Math.round((thresholds[index - 1] + 0.01) * 100) / 100 : 0.01}
-                  max={index < thresholds.length - 1 ? Math.round((thresholds[index + 1] - 0.01) * 100) / 100 : 0.99}
-                  step={0.01}
-                  value={threshold}
-                  onChange={(value) => setValueRamp({ thresholds: thresholds.map((current, i) => (i === index ? value : current)) })}
-                />
-              ))}
-            </div>
-          </details>
-        )}
       </ControlSection>
+
+      {renderStyle === "stepped" && (
+        <ControlSection title="Band boundaries">
+          <ThresholdEditor
+            valueRamp={valueRamp}
+            count={state.valueStepCount}
+            onChange={(next) => setValueRamp({ thresholds: next })}
+          />
+          <p className="hint">Drag a handle along the ramp, or focus it and use the arrow keys. Changing the number of values restores even boundaries.</p>
+        </ControlSection>
+      )}
     </div>
   );
 }

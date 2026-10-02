@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appReducer, createInitialState } from "../state";
 import { defaultThresholds } from "../lib/valueRamp";
 import type { AppAction, AppState } from "../types";
-import { AppShell } from "./AppShell";
+import { AppShell, type LoadProgress } from "./AppShell";
+import type { RefinementStatus } from "./ViewerCanvas";
 
 function mockLayout(sheet: boolean) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -16,24 +17,37 @@ function mockLayout(sheet: boolean) {
   }));
 }
 
-function renderShell(statePatch: Partial<AppState> = {}) {
+const PREVIEW: RefinementStatus = { available: false, phase: "preview", samples: 0, progress: 0 };
+
+function renderShell(
+  statePatch: Partial<AppState> = {},
+  { loadProgress = null, refinement = PREVIEW }: { loadProgress?: LoadProgress | null; refinement?: RefinementStatus } = {},
+) {
   const state: AppState = { ...createInitialState(), ...statePatch };
   const dispatch = vi.fn<(action: AppAction) => void>();
   const onFileSelected = vi.fn<(file: File) => void>();
+  const onRefine = vi.fn();
+  const onStopRefinement = vi.fn();
   const view = render(
     <AppShell
       state={state}
       dispatch={dispatch}
+      loadProgress={loadProgress}
+      refinement={refinement}
+      canUndoOrientation={false}
       onFileSelected={onFileSelected}
       onFitToView={vi.fn()}
       onResetView={vi.fn()}
+      onRefine={onRefine}
+      onStopRefinement={onStopRefinement}
       onRotateModel={vi.fn()}
+      onUndoOrientation={vi.fn()}
       onResetModelOrientation={vi.fn()}
     >
       <div data-testid="viewer" />
     </AppShell>,
   );
-  return { ...view, dispatch, onFileSelected };
+  return { ...view, dispatch, onFileSelected, onRefine, onStopRefinement };
 }
 
 function dropFiles(target: Element, files: File[]) {
@@ -46,6 +60,12 @@ function dropFiles(target: Element, files: File[]) {
 beforeEach(() => {
   localStorage.clear();
   mockLayout(false);
+  // jsdom has no layout engine; the band boundary slider only needs the observer to exist.
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
 });
 
 afterEach(() => {
@@ -69,6 +89,47 @@ describe("AppShell", () => {
     expect(screen.getByRole("heading", { name: "Open an STL to study its values" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Open STL" })).toHaveLength(2);
     expect(screen.queryByRole("toolbar", { name: "Camera" })).not.toBeInTheDocument();
+  });
+
+  it("shows loading progress in the viewer and cancels it", () => {
+    const cancel = vi.fn();
+    renderShell({ isLoading: true }, { loadProgress: { fileName: "bust.stl", phase: "Reading triangles", cancel } });
+
+    expect(screen.getByRole("heading", { name: "Opening bust.stl" })).toBeInTheDocument();
+    expect(screen.getByText("Reading triangles…")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open an STL to study its values" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("offers refinement only where it is available and reports its progress", () => {
+    renderShell();
+    expect(screen.queryByRole("button", { name: "Refine lighting" })).not.toBeInTheDocument();
+    cleanup();
+
+    const sampling: RefinementStatus = { available: true, phase: "sampling", samples: 16, progress: 0 };
+    const { onStopRefinement } = renderShell({}, { refinement: sampling });
+    expect(screen.getByText("Refining · 16/64 samples")).toHaveAttribute("role", "status");
+    fireEvent.click(screen.getByRole("button", { name: "Stop refinement" }));
+    expect(onStopRefinement).toHaveBeenCalled();
+  });
+
+  it("runs keyboard shortcuts outside text fields", () => {
+    const { dispatch } = renderShell({ renderStyle: "smooth", valueStepCount: 5 });
+
+    fireEvent.keyDown(window, { key: "3" });
+    fireEvent.keyDown(window, { key: "g" });
+    fireEvent.keyDown(window, { key: "l" });
+    const slider = screen.getAllByRole("slider")[0];
+    fireEvent.keyDown(slider, { key: "4" });
+
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "set-render-style", renderStyle: "stepped" },
+      { type: "set-value-step-count", valueStepCount: 3 },
+      { type: "set-value-ramp", patch: { grayscale: false } },
+      { type: "toggle-lock" },
+    ]);
   });
 
   it("opens dropped STL files and rejects other file types", () => {
@@ -254,16 +315,22 @@ describe("Light panel", () => {
 });
 
 describe("Values and presets panels", () => {
-  it("shows band thresholds only for stepped studies", () => {
+  it("edits band boundaries on the ramp only for stepped studies", () => {
     renderShell({ activeTab: "values", renderStyle: "smooth" });
     expect(screen.getByRole("slider", { name: "Contrast" })).toBeInTheDocument();
-    expect(screen.queryByText("Band thresholds")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("threshold-editor")).not.toBeInTheDocument();
     cleanup();
 
     const valueRamp = { ...createInitialState().valueRamp, thresholds: defaultThresholds(4) };
-    renderShell({ activeTab: "values", renderStyle: "stepped", valueStepCount: 4, valueRamp });
-    fireEvent.click(screen.getByText("Band thresholds"));
-    expect(screen.getAllByRole("slider", { name: /^Boundary/ })).toHaveLength(3);
+    const { dispatch } = renderShell({ activeTab: "values", renderStyle: "stepped", valueStepCount: 4, valueRamp });
+    const boundaries = screen.getAllByRole("slider", { name: /^Boundary/ });
+    expect(boundaries).toHaveLength(3);
+    expect(boundaries[1]).toHaveAttribute("aria-valuenow", "50");
+    expect(boundaries[1]).toHaveAttribute("aria-valuetext", "0.50");
+    boundaries[1].focus();
+    fireEvent.keyDown(boundaries[1], { key: "ArrowRight" });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "set-value-ramp", patch: { thresholds: [0.25, 0.51, 0.75] } });
   });
 
   it("resets all value settings from the Values tab", () => {

@@ -94,6 +94,9 @@ async function selectSetup(page: Page, name: string): Promise<void> {
   await expect(setup).toBeChecked();
 }
 
+const IMPORTED_POSE = "Standing as imported, with Z up.";
+const TURNED_POSE = /Turned from the imported pose/;
+
 async function expectLoaded(page: Page, fileName: string): Promise<void> {
   await expect(page.locator(".app-bar__file-name")).toHaveText(fileName);
 }
@@ -105,24 +108,34 @@ test.describe("STL viewer", () => {
     await expect(page.getByRole("heading", { name: "Open an STL to study its values" })).toBeVisible();
     await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
     await expectLoaded(page, "z-up-mini.stl");
-    const loadedToast = page.getByText("Loaded z-up-mini.stl.");
+    const loadedToast = page.getByText("Opened z-up-mini.stl.");
     await expect(loadedToast).toBeVisible();
     await expect(page.getByRole("heading", { name: "Open an STL to study its values" })).toHaveCount(0);
     await openTab(page, "Model");
     await expect(page.getByRole("heading", { name: "z-up-mini.stl" })).toBeVisible();
-    await expect(page.getByText("1. X -90°")).toBeVisible();
+    const summary = page.getByTestId("orientation-summary");
+    await expect(summary).toHaveText(IMPORTED_POSE);
+    await expect(page.getByTestId("reset-model-orientation-button")).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Undo turn" })).toBeDisabled();
     await expect(loadedToast).toBeHidden({ timeout: 6000 });
 
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
 
-    await page.getByTestId("rotate-y-positive").click();
-    await expect(page.getByText("1. X -90°")).toBeVisible();
-    await expect(page.getByText("2. Y +90°")).toBeVisible();
+    await page.getByRole("button", { name: "Turn right" }).click();
+    await page.getByRole("button", { name: "Tip forward" }).click();
+    await expect(summary).toHaveText(TURNED_POSE);
+    await page.getByRole("button", { name: "Undo turn" }).click();
+    await page.getByRole("button", { name: "Undo turn" }).click();
+    await expect(summary).toHaveText(IMPORTED_POSE);
+    await expect(page.getByRole("button", { name: "Undo turn" })).toBeDisabled();
 
+    await page.getByRole("button", { name: "Roll left" }).click();
     await page.getByTestId("reset-model-orientation-button").click();
-    await expect(page.getByText("1. X -90°")).toBeVisible();
-    await expect(page.getByText("2. Y +90°")).toHaveCount(0);
+    await expect(summary).toHaveText(IMPORTED_POSE);
+    await page.getByRole("button", { name: "Undo turn" }).click();
+    await expect(summary).toHaveText(TURNED_POSE);
+    await page.getByTestId("reset-model-orientation-button").click();
 
     await selectStudy(page, 3);
     await expectCanvasToRender(page);
@@ -171,16 +184,16 @@ test.describe("STL viewer", () => {
     await page.getByTestId("stl-file-input").setInputFiles(valueBandIslandPath);
 
     await expectLoaded(page, "value-band-island.stl");
-    await expect(page.getByText("Loaded value-band-island.stl.")).toBeVisible();
+    await expect(page.getByText("Opened value-band-island.stl.")).toBeVisible();
     await expect(page.getByText("4 tris").first()).toBeVisible();
     await openTab(page, "Model");
-    await expect(page.getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByTestId("orientation-summary")).toHaveText(IMPORTED_POSE);
     await expectCanvasToRender(page);
     await expectDesktopWorkbenchLayout(page);
 
     for (const count of [3, 4, 5, 6, 7, 8] as const) {
       await selectStudy(page, count);
-      await expect(page.getByText("1. X -90°")).toBeVisible();
+      await expect(page.getByTestId("orientation-summary")).toHaveText(IMPORTED_POSE);
       await expectCanvasToRender(page);
       await expectDesktopWorkbenchLayout(page);
       await expect(page.getByTestId("value-ramp-preview").locator("span")).toHaveCount(count);
@@ -202,13 +215,13 @@ test.describe("STL viewer", () => {
 
     await page.getByRole("tab", { name: "Model" }).click();
     await expect(sheetBody).toBeVisible();
-    await expect(inspector.getByText("1. X -90°")).toBeVisible();
-    await inspector.getByTestId("rotate-y-positive").click();
-    await expect(inspector.getByText("2. Y +90°")).toBeVisible();
-    await inspector.getByTestId("reset-model-orientation-button").click();
-    await expect(inspector.getByText("1. X -90°")).toBeVisible();
+    const summary = inspector.getByTestId("orientation-summary");
+    await expect(summary).toHaveText(IMPORTED_POSE);
+    await inspector.getByRole("button", { name: "Turn right" }).click();
+    await expect(summary).toHaveText(TURNED_POSE);
     await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
-    await expect(inspector.getByText("1. X -90°")).toBeVisible();
+    await expect(summary).toHaveText(IMPORTED_POSE);
+    await expect(inspector.getByRole("button", { name: "Undo turn" })).toBeDisabled();
 
     const measure = () => page.evaluate(() => {
       const rect = (selector: string) => {
@@ -303,10 +316,10 @@ test.describe("STL viewer", () => {
     await page.getByTestId("stl-file-input").setInputFiles(degenerateMiniPath);
 
     await expectLoaded(page, "degenerate-mini.stl");
-    await expect(page.getByText("Loaded degenerate-mini.stl.")).toBeVisible();
+    await expect(page.getByText("Opened degenerate-mini.stl.")).toBeVisible();
     await expect(page.getByText("2 tris").first()).toBeVisible();
     await openTab(page, "Model");
-    await expect(page.getByText("1. X -90°")).toBeVisible();
+    await expect(page.getByTestId("orientation-summary")).toHaveText(IMPORTED_POSE);
   });
 });
 
@@ -330,16 +343,25 @@ test("updates independent lights and screen-space values through the study contr
   await openTab(page, "Values");
   await page.getByRole("slider", { name: "Smoothing Radius", exact: true }).fill("3");
   await page.getByRole("slider", { name: "Contrast", exact: true }).fill("2.6");
-  await page.getByText("Band thresholds").click();
   await selectStudy(page, 5);
-  await page.getByRole("slider", { name: "Boundary 1", exact: true }).fill("0.2");
-  await page.getByRole("slider", { name: "Boundary 2", exact: true }).fill("0.21");
-  await page.getByRole("slider", { name: "Boundary 3", exact: true }).fill("0.22");
-  await expect(page.getByRole("slider", { name: "Boundary 2", exact: true })).toBeDisabled();
-  await page.getByRole("slider", { name: "Boundary 3", exact: true }).fill("0.6");
+  const boundary = (index: number) => page.getByRole("slider", { name: `Boundary ${index}`, exact: true });
+  await expect(boundary(1)).toHaveAttribute("aria-valuenow", "20");
+  await expect(boundary(2)).toHaveAttribute("aria-valuenow", "40");
+  // Handles stop one step short of a neighbor instead of crossing or merging bands.
+  await boundary(2).focus();
+  for (let step = 0; step < 25; step++) await page.keyboard.press("ArrowLeft");
+  await expect(boundary(2)).toHaveAttribute("aria-valuenow", "21");
+  await boundary(4).focus();
+  await page.keyboard.press("End");
+  await expect(boundary(4)).toHaveAttribute("aria-valuenow", "99");
+  const editor = page.getByTestId("threshold-editor");
+  const box = (await editor.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
+  await expect.poll(async () => Number(await boundary(3).getAttribute("aria-valuenow"))).toBeGreaterThan(70);
+  expect(Number(await boundary(3).getAttribute("aria-valuenow"))).toBeLessThan(80);
   await selectStudy(page, 3);
-  await expect(page.getByRole("slider", { name: "Boundary 1", exact: true })).toBeVisible();
-  await page.getByRole("slider", { name: "Boundary 1", exact: true }).fill("0.25");
+  await expect(boundary(1)).toHaveAttribute("aria-valuenow", "33");
+  await expect(boundary(3)).toHaveCount(0);
   await openTab(page, "Presets");
   await page.getByRole("button", { name: "Save preset", exact: true }).click();
   await expect(page.getByRole("button", { name: "Preset 1 Local Studio · 3 values", exact: true })).toBeVisible();
@@ -363,9 +385,9 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
   test.skip(softwareRenderer, "Refinement requires a hardware renderer; run with PLAYWRIGHT_GPU=1 on a GPU host");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
   await expectLoaded(page, "z-up-mini.stl");
-  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  await expect(page.getByText("Opened z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
   const previewPixels = PNG.sync.read(await page.locator("canvas").screenshot());
-  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  await page.getByRole("button", { name: "Refine lighting", exact: true }).click();
   const status = page.locator(".refinement-controls [role=status]");
   await expect(status).toContainText("Refined", { timeout: 45000 });
   const refinedPixels = PNG.sync.read(await page.locator("canvas").screenshot());
@@ -390,24 +412,24 @@ test("refines on desktop, keeps value edits, resets on light edits, and excludes
   await page.getByRole("slider", { name: "Azimuth", exact: true }).fill("350");
   await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("170");
   await page.getByRole("slider", { name: "Second Elevation", exact: true }).fill("25");
-  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
+  await page.getByRole("button", { name: "Refine lighting", exact: true }).click();
   await expect(status).toContainText("Refined", { timeout: 45000 });
   await page.getByRole("slider", { name: "Azimuth", exact: true }).fill("0");
   await expect(page.getByRole("slider", { name: "Second Azimuth", exact: true })).toHaveValue("180");
   await expect(status).toHaveText("Preview");
-  await page.getByRole("button", { name: "Refine Lighting", exact: true }).click();
-  await page.getByRole("button", { name: "Stop Refinement", exact: true }).click();
+  await page.getByRole("button", { name: "Refine lighting", exact: true }).click();
+  await page.getByRole("button", { name: "Stop refinement", exact: true }).click();
   await expect(status).toHaveText("Preview");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByRole("button", { name: "Refine Lighting", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refine lighting", exact: true })).toHaveCount(0);
 });
 
 test("links an opposing fill, unlinks without a jump, and restores settings and presets", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
   await expectLoaded(page, "z-up-mini.stl");
-  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  await expect(page.getByText("Opened z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
   await selectSetup(page, "Double Directional");
   const opposite = page.getByRole("switch", { name: "Keep Second Light Opposite", exact: true });
   const azimuth = page.getByRole("slider", { name: "Azimuth", exact: true });
@@ -442,6 +464,17 @@ test("links an opposing fill, unlinks without a jump, and restores settings and 
   expect(await page.locator("canvas").screenshot()).toEqual(linkedImage);
   await azimuth.fill("90");
   await expect(secondAzimuth).toHaveValue("0");
+  // Once unlinked, marker 2 can be dragged on the dome without moving the key light.
+  const dome = (await page.getByTestId("sun-dome").boundingBox())!;
+  const marker = (await page.locator(".dome__marker--second").boundingBox())!;
+  const radius = dome.width / 2 - 14;
+  await page.mouse.move(marker.x + marker.width / 2, marker.y + marker.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(dome.x + dome.width / 2 - radius * 0.5, dome.y + dome.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(secondAzimuth).toHaveValue("270");
+  await expect(secondElevation).toHaveValue("48");
+  await expect(azimuth).toHaveValue("90");
   await secondAzimuth.fill("40");
   await ratio.fill("0.8");
   await savePreset();
@@ -556,6 +589,34 @@ test("compares colored lighting with neutral values and persists the colors", as
   await expect(grayscaleSwitch).not.toBeChecked();
 });
 
+function syntheticBinaryStl(triangles: number): Buffer {
+  const buffer = Buffer.alloc(84 + triangles * 50);
+  buffer.writeUInt32LE(triangles, 80);
+  for (let i = 0; i < triangles; i++) {
+    const offset = 84 + i * 50 + 12;
+    const x = (i % 1000) / 100, z = Math.floor(i / 1000) / 100;
+    [x, 0, z, x + 0.01, 0, z, x, 0.01, z].forEach((value, index) => buffer.writeFloatLE(value, offset + index * 4));
+  }
+  return buffer;
+}
+
+test("shows loading progress and keeps the open model when loading is cancelled", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+  await expectLoaded(page, "z-up-mini.stl");
+  await page.getByTestId("stl-file-input").setInputFiles({
+    name: "large-sculpt.stl",
+    mimeType: "model/stl",
+    buffer: syntheticBinaryStl(400_000),
+  });
+  const card = page.locator(".load-card");
+  await expect(card.getByRole("heading", { name: "Opening large-sculpt.stl" })).toBeVisible();
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.getByText("Stopped opening large-sculpt.stl.")).toBeVisible();
+  await expectLoaded(page, "z-up-mini.stl");
+});
+
 test("renames, deletes and restores presets", async ({ page }) => {
   await page.goto("/");
   await openTab(page, "Presets");
@@ -580,7 +641,7 @@ test("increases value separation without flattening the illuminated shadows", as
   await page.goto("/");
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
   await expectLoaded(page, "z-up-mini.stl");
-  await expect(page.getByText("Loaded z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
+  await expect(page.getByText("Opened z-up-mini.stl.", { exact: true })).toBeHidden({ timeout: 8000 });
   // A close, low studio source produces a continuous illumination gradient on
   // the existing small STL, so the test can inspect its darker value variations.
   await selectSetup(page, "Local Studio");

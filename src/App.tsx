@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { BufferGeometry } from "three";
 import { Toaster, toast } from "sonner";
-import { AppShell } from "./components/AppShell";
-import type { ViewerCameraApi } from "./components/ViewerCanvas";
+import { AppShell, type LoadProgress } from "./components/AppShell";
+import type { RefinementStatus, ViewerCameraApi } from "./components/ViewerCanvas";
 import { ViewerCanvas } from "./components/ViewerCanvas";
 import { loadStlFile, rebuildLoadedModel, rotateLoadedModel } from "./lib/stl";
 import { appReducer, createInitialState, writePersistedState } from "./state";
-import { DEFAULT_MODEL_ORIENTATION, type OrientationAxis } from "./types";
+import { DEFAULT_MODEL_ORIENTATION, type ModelOrientation, type OrientationAxis } from "./types";
 
-const STL_LOAD_TOAST_ID = "stl-load";
 const LOAD_SUCCESS_VISIBLE_MS = 3200;
 const LOAD_ERROR_VISIBLE_MS = 5000;
+const INITIAL_REFINEMENT: RefinementStatus = { available: false, phase: "preview", samples: 0, progress: 0 };
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, undefined, createInitialState);
@@ -28,6 +28,11 @@ export default function App() {
   const loadAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => loadAbortRef.current?.abort(), []);
   const previousSourceGeometryRef = useRef<BufferGeometry | null>(null);
+  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null);
+  const [refinement, setRefinement] = useState<RefinementStatus>(INITIAL_REFINEMENT);
+  const [orientationHistory, setOrientationHistory] = useState<ModelOrientation[]>([]);
+
+  const fitAfterLayout = () => requestAnimationFrame(() => cameraApiRef.current?.fitToView());
 
   const handleFileSelected = useCallback(async (file: File) => {
     loadAbortRef.current?.abort();
@@ -36,24 +41,19 @@ export default function App() {
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
     dispatch({ type: "load-start", requestId });
-    toast.loading(`Loading ${file.name}...`, {
-      id: STL_LOAD_TOAST_ID,
-      duration: Infinity,
-      action: { label: "Cancel", onClick: () => controller.abort() },
-    });
+    setLoadProgress({ fileName: file.name, phase: "Reading file", cancel: () => controller.abort() });
     try {
       const model = await loadStlFile(file, { signal: controller.signal, onProgress: phase => {
-        if (loadRequestIdRef.current === requestId) toast.loading(`${phase}…`, { id: STL_LOAD_TOAST_ID, duration: Infinity, action: { label: "Cancel", onClick: () => controller.abort() } });
+        if (loadRequestIdRef.current === requestId) setLoadProgress(current => (current ? { ...current, phase } : current));
       } });
       if (loadRequestIdRef.current !== requestId) {
         model.geometry.dispose(); model.sourceGeometry.dispose();
         return;
       }
       dispatch({ type: "load-success", requestId, model });
-      toast.success(`Loaded ${model.metadata.fileName}.`, {
-        id: STL_LOAD_TOAST_ID,
-        duration: LOAD_SUCCESS_VISIBLE_MS, action: undefined,
-      });
+      setLoadProgress(null);
+      setOrientationHistory([]);
+      toast.success(`Opened ${model.metadata.fileName}.`, { duration: LOAD_SUCCESS_VISIBLE_MS });
       requestAnimationFrame(() => {
         if (loadRequestIdRef.current === requestId) {
           cameraApiRef.current?.fitToView();
@@ -65,10 +65,12 @@ export default function App() {
         return;
       }
       dispatch({ type: "load-error", requestId, message });
-      toast.error(state.model ? `${message}. Previous model remains loaded.` : message, {
-        id: STL_LOAD_TOAST_ID,
-        duration: LOAD_ERROR_VISIBLE_MS, action: undefined,
-      });
+      setLoadProgress(null);
+      if (controller.signal.aborted) {
+        toast(`Stopped opening ${file.name}.`, { duration: LOAD_SUCCESS_VISIBLE_MS });
+        return;
+      }
+      toast.error(state.model ? `${message}. The previous model is still open.` : message, { duration: LOAD_ERROR_VISIBLE_MS });
     }
   }, [state.model]);
 
@@ -76,21 +78,28 @@ export default function App() {
     () => ({
       fitToView: () => cameraApiRef.current?.fitToView(),
       resetView: () => cameraApiRef.current?.resetView(),
+      refine: () => cameraApiRef.current?.refine(),
+      stopRefinement: () => cameraApiRef.current?.stopRefinement(),
     }),
     [],
   );
+
+  const applyOrientation = useCallback((orientation: ModelOrientation) => {
+    if (!state.model) {
+      return;
+    }
+    dispatch({ type: "replace-model", model: rebuildLoadedModel(state.model, orientation) });
+    fitAfterLayout();
+  }, [state.model]);
 
   const handleRotateModel = useCallback(
     (axis: OrientationAxis, quarterTurns: number) => {
       if (!state.model) {
         return;
       }
-
-      const model = rotateLoadedModel(state.model, axis, quarterTurns);
-      dispatch({ type: "replace-model", model });
-      requestAnimationFrame(() => {
-        cameraApiRef.current?.fitToView();
-      });
+      setOrientationHistory(history => [...history, state.model!.orientation]);
+      dispatch({ type: "replace-model", model: rotateLoadedModel(state.model, axis, quarterTurns) });
+      fitAfterLayout();
     },
     [state.model],
   );
@@ -99,13 +108,18 @@ export default function App() {
     if (!state.model) {
       return;
     }
+    setOrientationHistory(history => [...history, state.model!.orientation]);
+    applyOrientation(DEFAULT_MODEL_ORIENTATION);
+  }, [applyOrientation, state.model]);
 
-    const model = rebuildLoadedModel(state.model, DEFAULT_MODEL_ORIENTATION);
-    dispatch({ type: "replace-model", model });
-    requestAnimationFrame(() => {
-      cameraApiRef.current?.fitToView();
-    });
-  }, [state.model]);
+  const handleUndoOrientation = useCallback(() => {
+    const previous = orientationHistory[orientationHistory.length - 1];
+    if (!previous) {
+      return;
+    }
+    setOrientationHistory(history => history.slice(0, -1));
+    applyOrientation(previous);
+  }, [applyOrientation, orientationHistory]);
 
   useEffect(() => {
     writePersistedState({
@@ -133,13 +147,19 @@ export default function App() {
       <AppShell
         state={state}
         dispatch={dispatch}
+        loadProgress={loadProgress}
+        refinement={refinement}
+        canUndoOrientation={orientationHistory.length > 0}
         onFileSelected={handleFileSelected}
         onFitToView={cameraActions.fitToView}
         onResetView={cameraActions.resetView}
+        onRefine={cameraActions.refine}
+        onStopRefinement={cameraActions.stopRefinement}
         onRotateModel={handleRotateModel}
+        onUndoOrientation={handleUndoOrientation}
         onResetModelOrientation={handleResetModelOrientation}
       >
-        <ViewerCanvas ref={cameraApiRef} state={state} />
+        <ViewerCanvas ref={cameraApiRef} state={state} onRefinementChange={setRefinement} />
       </AppShell>
       <Toaster
         theme="dark"

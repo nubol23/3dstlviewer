@@ -219,3 +219,7 @@ color, floor color included, to white and neutral. Floor reflectance is kept.
 Presets can be renamed and deleted (with undo), saving stops at eight instead of
 dropping the oldest, and presets can be saved while the light is locked. Light
 colors, angles, intensities and the stored schema are unchanged.
+Band boundaries are edited as handles on the stepped ramp, one percent apart at
+minimum, replacing the per-boundary sliders; their stored values are unchanged.
+Refinement is started, followed and stopped from a viewport control with the
+same phases and budget as before.

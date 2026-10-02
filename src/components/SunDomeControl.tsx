@@ -16,6 +16,7 @@ const ELEVATION_RANGE = MAX_ELEVATION - MIN_ELEVATION;
 const AZIMUTH_DEAD_ZONE = 0.09;
 const DOME_INSET_PX = 14;
 const HORIZON_RADIUS = Math.sqrt(MAX_ELEVATION / ELEVATION_RANGE);
+const MARKER_GRAB_RADIUS_PX = 18;
 
 function toRads(value: number): number {
   return (value * Math.PI) / 180;
@@ -80,7 +81,7 @@ function markerStyle(point: { x: number; y: number }, color: string): CSSPropert
 
 export function SunDomeControl({ light, onChange, disabled = false, lightingMode = "directional" }: SunDomeControlProps) {
   const domeRef = useRef<HTMLButtonElement | null>(null);
-  const pointerActive = useRef(false);
+  const dragTarget = useRef<"key" | "second" | null>(null);
   const readoutId = useId();
   const classicTop = lightingMode === "zenithal" || lightingMode === "broad-zenithal";
   const directionDisabled = disabled || classicTop;
@@ -88,56 +89,76 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
   const secondPoint = lightingMode === "dual"
     ? projectLightToDomePoint({ azimuthDeg: light.secondaryAzimuthDeg, elevationDeg: light.secondaryElevationDeg })
     : null;
+  const secondDraggable = Boolean(secondPoint) && !light.secondaryOpposite && !disabled;
+
+  const pointerToDome = useCallback((event: PointerEvent | ReactPointerEvent<HTMLElement>) => {
+    if (!domeRef.current) {
+      return null;
+    }
+    const rect = domeRef.current.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) / 2 - DOME_INSET_PX;
+    if (radius <= 0) {
+      return null;
+    }
+    const x = event.clientX - rect.left - rect.width / 2;
+    const y = event.clientY - rect.top - rect.height / 2;
+    return { x, y, radius, point: { x: toClamped(x / radius), y: toClamped(y / radius) } };
+  }, []);
 
   const setFromPointer = useCallback(
     (event: PointerEvent | ReactPointerEvent<HTMLElement>) => {
-      if (directionDisabled || !domeRef.current) {
+      const target = dragTarget.current;
+      const dome = pointerToDome(event);
+      if (!target || !dome) {
         return;
       }
 
-      const rect = domeRef.current.getBoundingClientRect();
-      const x = event.clientX - rect.left - rect.width / 2;
-      const y = event.clientY - rect.top - rect.height / 2;
-      const radius = Math.min(rect.width, rect.height) / 2 - DOME_INSET_PX;
-      if (radius <= 0) {
+      if (target === "second") {
+        const next = domePointToLightDirection(dome.point, light.secondaryAzimuthDeg);
+        onChange({
+          secondaryAzimuthDeg: Number(next.azimuthDeg.toFixed(1)),
+          secondaryElevationDeg: Number(next.elevationDeg.toFixed(1)),
+        });
         return;
       }
-
-      const nextDirection = domePointToLightDirection(
-        {
-          x: toClamped(x / radius),
-          y: toClamped(y / radius),
-        },
-        light.azimuthDeg,
-      );
+      const next = domePointToLightDirection(dome.point, light.azimuthDeg);
       onChange({
-        azimuthDeg: Number(nextDirection.azimuthDeg.toFixed(1)),
-        elevationDeg: Number(nextDirection.elevationDeg.toFixed(1)),
+        azimuthDeg: Number(next.azimuthDeg.toFixed(1)),
+        elevationDeg: Number(next.elevationDeg.toFixed(1)),
       });
     },
-    [directionDisabled, light.azimuthDeg, onChange],
+    [light.azimuthDeg, light.secondaryAzimuthDeg, onChange, pointerToDome],
   );
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (directionDisabled) return;
-      pointerActive.current = true;
+      const dome = pointerToDome(event);
+      if (!dome) return;
+      const nearSecond = secondDraggable && secondPoint
+        && Math.hypot(dome.x - secondPoint.x * dome.radius, dome.y - secondPoint.y * dome.radius) <= MARKER_GRAB_RADIUS_PX;
+      if (nearSecond) {
+        dragTarget.current = "second";
+      } else if (!directionDisabled) {
+        dragTarget.current = "key";
+      } else {
+        return;
+      }
       domeRef.current?.setPointerCapture(event.pointerId);
       setFromPointer(event.nativeEvent);
     },
-    [directionDisabled, setFromPointer],
+    [directionDisabled, pointerToDome, secondDraggable, secondPoint, setFromPointer],
   );
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (!pointerActive.current || directionDisabled) return;
+      if (!dragTarget.current) return;
       setFromPointer(event.nativeEvent);
     },
-    [directionDisabled, setFromPointer],
+    [setFromPointer],
   );
 
   const endPointer = useCallback(() => {
-    pointerActive.current = false;
+    dragTarget.current = null;
   }, []);
 
   const onKeyDown = useCallback(
@@ -231,7 +252,9 @@ export function SunDomeControl({ light, onChange, disabled = false, lightingMode
       {classicTop && <p className="hint">Zenithal setups keep the light directly above the model.</p>}
       {!classicTop && <p className="hint">
         Drag on the dome, or focus it and use arrow keys. The edge is below the horizon.
-        {secondPoint && " 1 is the key light, 2 the second light."}
+        {secondPoint && (light.secondaryOpposite
+          ? " 1 is the key light; 2, the second light, follows it."
+          : " 1 is the key light; drag 2 to move the second light.")}
       </p>}
       <div id={readoutId} className="visually-hidden" aria-live="polite" aria-atomic="true">
         {directionReadout}
