@@ -195,3 +195,12 @@ on desktop/mobile. Store the boolean with settings and saved presets. Persistenc
 version 8 discards older records under the existing no-migration policy. Verify
 wrapping, unlink continuity, independent elevation/ratio, lock behavior, reload,
 preset restore, mobile controls and refinement after moving the linked lights.
+
+## Warm main-light shortcut
+
+Add a Warm Key Light checkbox on desktop and mobile. Checking selects pale
+yellow #FFE2B3 and enables color presentation; unchecking selects white without
+changing the secondary/environment/floor colors. Use the existing key-color
+field for selection, persistence and both renderers, retaining custom color
+editing and manual grayscale comparison. Default setups remain white. This
+shortcut adds no stored field or schema reset.

@@ -228,6 +228,19 @@ input, monochrome comparison, reload and mobile reflected-mode controls. All
 the Pages build. Both independent scope reviews passed; only AppShell changes
 in production for this follow-up.
 
+Warm Key Light provides a pale-yellow #FFE2B3 preset for the main source in
+desktop/mobile controls. Checking it enables color presentation; unchecking
+restores white while keeping the fill colors. The checkbox is selected when
+the existing key color matches the warm preset; choosing a different custom
+color deselects the preset. Settings and saved presets use the existing color
+field, so this addition requires no schema change. Manual grayscale comparison
+remains available. The color browser workflow covers default white, warm/white
+switching, fill preservation, automatic color display, reload and mobile use.
+The pale-yellow key and blue fill were visually checked on the full bust in
+raster and refinement. The mobile checkbox follows the existing color controls
+to preserve the direction-pad layout at 320 pixels. All 76 unit tests and 10 GPU
+browser tests pass, together with lint, the Pages build and both scope reviews.
+
 ## Opposing second light
 
 Keep Second Light Opposite is enabled when applying Double Directional. The

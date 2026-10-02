@@ -27,6 +27,7 @@ const RENDER_STYLE_OPTIONS = [
 ] as const;
 
 const VALUE_STEP_COUNTS: readonly ValueStepCount[] = [3, 4, 5, 6, 7, 8];
+const WARM_KEY_COLOR = "#ffe2b3";
 
 type AppShellProps = {
   state: AppState;
@@ -441,6 +442,13 @@ export function AppShell({
     <p className="control-hint">Muted blue secondary light and blue-gray sky/ground fill. Individual colors remain adjustable.</p>
   </>;
 
+  const warmKeyControl = <label className="control-hint">
+    <input type="checkbox" checked={state.light.keyColor.toLowerCase() === WARM_KEY_COLOR} disabled={lightLocked} onChange={event => {
+      handleLightChange({ keyColor: event.target.checked ? WARM_KEY_COLOR : "#ffffff" });
+      if (event.target.checked) setValueRamp({ grayscale: false });
+    }} /> Warm Key Light
+  </label>;
+
   const loadPreset = (presetId: string) => {
     dispatch({ type: "load-preset", presetId });
   };
@@ -637,6 +645,7 @@ export function AppShell({
               testId="desktop-light-setup"
             />
             {fillColorControls}
+            {warmKeyControl}
             <SunDomeControl
               light={state.light}
               onChange={handleLightChange}
@@ -684,6 +693,7 @@ export function AppShell({
                 disabled={lightLocked}
                 lightingMode={state.lightingMode}
               />
+              {warmKeyControl}
               <LightSetupControl
                 disabled={lightLocked}
                 onApply={applyLightSetup}

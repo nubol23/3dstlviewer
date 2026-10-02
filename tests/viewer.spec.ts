@@ -474,6 +474,9 @@ test("compares colored lighting with neutral values and persists the colors", as
   await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
   await expect(page.getByRole("heading", { name: "z-up-mini.stl" }).first()).toBeVisible();
   await page.getByTestId("desktop-light-setup").selectOption("dual");
+  const warmKey = page.getByRole("checkbox", { name: "Warm Key Light", exact: true }).first();
+  await expect(warmKey).not.toBeChecked();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ffffff");
   await page.getByLabel("Key Color", { exact: true }).first().fill("#ee7040");
   await page.getByLabel("Second Light Color", { exact: true }).first().fill("#507add");
   await page.getByLabel("Environment Color", { exact: true }).first().fill("#d0dfef");
@@ -503,12 +506,27 @@ test("compares colored lighting with neutral values and persists the colors", as
   await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
   await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
 
+  await page.getByRole("button", { name: "Monochrome", exact: true }).first().click();
+  await warmKey.check();
+  await expect(page.getByLabel("Key Color", { exact: true }).first()).toHaveValue("#ffe2b3");
+  await expect(page.getByLabel("Second Light Color", { exact: true }).first()).toHaveValue("#a8c7ef");
+  await expect(page.getByLabel("Environment Color", { exact: true }).first()).toHaveValue("#b6c9e3");
+  await expect(page.getByLabel("Floor Color", { exact: true }).first()).toHaveValue("#78899f");
+  await expect(page.getByRole("checkbox", { name: "Neutral Grayscale", exact: true }).first()).not.toBeChecked();
+  await page.reload();
+  await expect(warmKey).toBeChecked();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "Light", exact: true }).click();
+  await page.locator(".mobile-sheet").getByRole("checkbox", { name: "Warm Key Light", exact: true }).uncheck();
+  await expect(page.locator(".mobile-sheet").getByLabel("Key Color", { exact: true })).toHaveValue("#ffffff");
+  await expect(page.locator(".mobile-sheet").getByLabel("Second Light Color", { exact: true })).toHaveValue("#a8c7ef");
   await page.getByTestId("mobile-light-setup").selectOption("reflected");
   await page.locator(".mobile-sheet").getByRole("button", { name: "Monochrome", exact: true }).click();
   await page.locator(".mobile-sheet").getByRole("button", { name: "Cool Blue Fill", exact: true }).click();
   await expect(page.locator(".mobile-sheet").getByLabel("Environment Color", { exact: true })).toHaveValue("#b6c9e3");
+  await page.locator(".mobile-sheet").getByRole("checkbox", { name: "Warm Key Light", exact: true }).check();
+  await expect(page.locator(".mobile-sheet").getByLabel("Key Color", { exact: true })).toHaveValue("#ffe2b3");
   await page.getByRole("tab", { name: "View", exact: true }).click();
   await expect(page.locator(".mobile-sheet").getByRole("checkbox", { name: "Neutral Grayscale", exact: true })).not.toBeChecked();
 });
