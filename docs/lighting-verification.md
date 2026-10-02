@@ -101,11 +101,11 @@ count or silent simplification is substituted for that missing measurement.
 
 - npm ci --no-audit --no-fund: passed from the repaired lockfile.
 - npm run lint: passed, zero lint warnings.
-- npm test: 73 passed across 8 files.
+- npm test: 76 passed across 8 files.
 - npm run build -- --mode github-pages: passed. Vite reports a large initial
   chunk warning; the initial JS is about 1.70 MB / 539 KB gzip, with refinement
   in a separate roughly 208 KB / 60 KB gzip chunk plus its worker.
-- Nine hardware-GPU Playwright tests passed against the static Pages build.
+- Ten hardware-GPU Playwright tests passed against the static Pages build.
   They cover import/orientation, mobile layout, stepped controls, independent
   lighting, distance changes, adjacent thresholds, persistence, refinement
   lifecycle and color/grayscale comparison. A pixel-based refinement regression
@@ -228,6 +228,33 @@ input, monochrome comparison, reload and mobile reflected-mode controls. All
 the Pages build. Both independent scope reviews passed; only AppShell changes
 in production for this follow-up.
 
+## Opposing second light
+
+Keep Second Light Opposite is enabled when applying Double Directional. The
+state reducer updates the second azimuth to `(main azimuth + 180) % 360` for
+primary dome/slider edits while linked. Elevation remains independent. Unlinking
+leaves the current azimuth in place; relinking aligns only azimuth. Mode-only
+switching preserves current settings, as it does for other light controls.
+
+The shared desktop/mobile control disables only Second Azimuth while linked.
+Second Elevation and Second Light Ratio remain editable, subject to the existing
+global light lock. Ratio still ranges from 0 to 2 and defaults to 0.3. Both tiers
+consume the same resulting Three.js light positions; no renderer, source type,
+scattered-light simulation, color, sampling or shared PCSS change was needed.
+Settings and saved presets include the toggle, with schema 8 discarding older
+records instead of adding a migration path.
+
+Three state tests cover angular wrapping, unlink/relink continuity and persisted
+linked/independent presets. The browser flow checks the default, primary dome
+input, independent elevation/ratio, identical raster pixels immediately after
+unlinking, settings reload, saved-preset restore, and mobile linking/unlinking.
+The refinement lifecycle check also renders linked lights after an azimuth edit
+and verifies that subsequent linked motion invalidates the completed refinement.
+The final run passed all 76 unit tests and 10 hardware-GPU browser tests, lint,
+the Pages build and both independent scope reviews. The raster unlink comparison
+was pixel-identical. Only the shared state/type/control layer changed in
+production; both rendering tiers retain the existing scene-light integration.
+
 ## Remaining approximations and limits
 
 - Raster environment and ground fill are approximate; screen-space AO cannot see
@@ -260,7 +287,7 @@ in production for this follow-up.
 ## Rollout
 
 The PR is not merged or deployed. Merging to main triggers the existing static
-GitHub Pages workflow. Persisted schema version 7 discards older settings and
+GitHub Pages workflow. Persisted schema version 8 discards older settings and
 presets without migration or notice. Reverting the PR restores the prior code;
 previous local settings discarded by the new schema cannot be recovered by code
 rollback alone.

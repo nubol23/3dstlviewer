@@ -131,7 +131,7 @@ Color controls set each source, the environment's upper gradient, and the floor
 independently. Neutral Grayscale compares the same rendered lightness without
 rebuilding illumination. Colored value studies move toward white/black to reach
 the requested study lightness without clipping saturated RGB channels; this is
-an artistic presentation, not extra light transport. Persistence version 7
+an artistic presentation, not extra light transport. Persistence version 8
 includes these fields and drops all older records without a compatibility path.
 
 ## Approved contrast correction
@@ -161,7 +161,7 @@ highlights in the reference photographs.
 Verify continuous and stepped images on both reference sculpts. Check stronger
 light/shadow separation and retained shadow variation, persistence of the new
 control, and display-only adjustment of completed refinement. Bump persistence
-to version 7 and discard earlier presets without migration.
+to version 8 for the integrated changes and discard earlier presets without migration.
 
 ## Broad-sky interpretation and color shortcut follow-up
 
@@ -176,3 +176,22 @@ lighting controls, on desktop and mobile. Reuse the existing color fields and
 grayscale switch; preserve the selected key color, angles, intensities and
 exposure. Choose a muted blue secondary light with blue-gray environment/ground
 fill. Keep individual color editing and persistence, with no schema change.
+
+## Opposing second light
+
+Double Directional enables Keep Second Light Opposite when its lighting setup
+is applied. While enabled, store the second azimuth as the main azimuth plus
+180 degrees, modulo 360. Both the primary dome and its sliders update that angle.
+Disable only the second azimuth slider while linked; keep its value visible.
+The second elevation stays independent and is never mirrored below the model.
+
+Unlink at the current secondary direction, with no position change. Independent
+direction edits then behave as before; relinking aligns only azimuth. Preserve
+Second Light Ratio at its existing 0–2 range and 0.3 preset default, and keep the
+shared Shadow Softness behavior. This is an opposing artistic fill source.
+
+Use the same canonical light state in raster and refinement and the same control
+on desktop/mobile. Store the boolean with settings and saved presets. Persistence
+version 8 discards older records under the existing no-migration policy. Verify
+wrapping, unlink continuity, independent elevation/ratio, lock behavior, reload,
+preset restore, mobile controls and refinement after moving the linked lights.
