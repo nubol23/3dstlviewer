@@ -617,6 +617,59 @@ test("shows loading progress and keeps the open model when loading is cancelled"
   await expectLoaded(page, "z-up-mini.stl");
 });
 
+test.describe("touch rendering quality", () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+
+  const pixelRatio = (page: Page) =>
+    page.locator("canvas").evaluate((element: HTMLCanvasElement) => element.width / element.clientWidth);
+
+  test("renders phones at the full 2x study resolution at rest", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+    await expectLoaded(page, "z-up-mini.stl");
+    await expect.poll(() => pixelRatio(page)).toBeCloseTo(2, 1);
+    // The resting image stays at full resolution instead of cycling.
+    const settled: number[] = [];
+    for (let sample = 0; sample < 12; sample++) {
+      settled.push(await pixelRatio(page));
+      await page.waitForTimeout(150);
+    }
+    expect(settled.every((ratio) => Math.abs(ratio - 2) < 0.05)).toBe(true);
+
+    await page.getByRole("tab", { name: "Light", exact: true }).click();
+    await page.getByRole("slider", { name: "Intensity", exact: true }).fill("4");
+    await expect.poll(() => pixelRatio(page)).toBeCloseTo(2, 1);
+  });
+
+  test("lowers phone resolution only while orbiting", async ({ page }) => {
+    await page.goto("/");
+    const softwareRenderer = await page.locator("canvas").evaluate((canvas: HTMLCanvasElement) => {
+      const gl = canvas.getContext("webgl2")!;
+      const debug = gl.getExtension("WEBGL_debug_renderer_info");
+      return debug ? /SwiftShader|llvmpipe|software/i.test(String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))) : false;
+    });
+    test.skip(softwareRenderer, "Software frames outlast the restore delay; run with PLAYWRIGHT_GPU=1 on a GPU host");
+    await page.getByTestId("stl-file-input").setInputFiles(zUpMiniPath);
+    await expectLoaded(page, "z-up-mini.stl");
+    await expect.poll(() => pixelRatio(page)).toBeCloseTo(2, 1);
+
+    const box = (await page.locator("canvas").boundingBox())!;
+    const y = box.y + box.height / 3;
+    let x = box.x + box.width / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    const whileDragging: number[] = [];
+    for (let step = 0; step < 10; step++) {
+      x += 6;
+      await page.mouse.move(x, y);
+      whileDragging.push(await pixelRatio(page));
+    }
+    await page.mouse.up();
+    expect(whileDragging.slice(2).every((ratio) => Math.abs(ratio - 1) < 0.05)).toBe(true);
+    await expect.poll(() => pixelRatio(page)).toBeCloseTo(2, 1);
+  });
+});
+
 test("renames, deletes and restores presets", async ({ page }) => {
   await page.goto("/");
   await openTab(page, "Presets");

@@ -277,8 +277,9 @@ production; both rendering tiers retain the existing scene-light integration.
   honored by the local spotlight in refinement. Directional sources remain
   infinitely distant and have hard traced shadows; raster PCSS is an artistic
   approximation and can differ from refinement.
-- Finite raster shadow maps can show fine-detail aliasing, particularly at the
-  lower mobile budget. Stronger value separation can make those artifacts visible.
+- Finite raster shadow maps can show fine-detail aliasing. Stronger value
+  separation can make those artifacts visible. Mobile now uses the desktop budget
+  at rest (see the lighting plan's mobile render quality section).
 - Raster floor cast shadows are disabled. Model self-shadowing remains. Traced
   ground visibility remains physical because it affects reflected light.
 - Ground Reflectance scales the chosen floor color/albedo and the gradient's
